@@ -46,6 +46,9 @@ class WebSocketManager:
             self.active_conversations[user_id].discard(conversation_id)
         self._cancel_typing(conversation_id, user_id)
 
+    def is_user_online(self, user_id: UUID) -> bool:
+        return bool(self.user_sockets.get(user_id))
+
     def is_user_in_conversation(self, user_id: UUID, conversation_id: UUID) -> bool:
         return conversation_id in self.active_conversations.get(user_id, set())
 

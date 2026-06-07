@@ -9,21 +9,16 @@ class UserBase(BaseModel):
     email: EmailStr
 
 
-class UserCreate(UserBase):
-    password: str
-
-
 class UserUpdate(BaseModel):
     avatar_url: Optional[str] = None
     email: Optional[EmailStr] = None
     username: Optional[str] = None
-    new_password: Optional[str] = None
-    current_password: Optional[str] = None  # required when changing password
 
 
 class UserOut(UserBase):
     id: UUID
     avatar_url: Optional[str] = None
+    auth_provider: str = "password"
     created_at: datetime
     last_seen: Optional[datetime] = None
 

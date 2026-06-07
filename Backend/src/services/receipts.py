@@ -16,10 +16,35 @@ def status_upper(status: str) -> str:
     return status.upper()
 
 
+async def mark_all_pending_delivered(
+    db: AsyncSession, recipient_id: UUID
+) -> dict[UUID, list[MessageReceipt]]:
+    """Mark all SENT receipts as DELIVERED when recipient comes online."""
+    result = await db.execute(
+        select(MessageReceipt, Message.conversation_id)
+        .join(Message, Message.id == MessageReceipt.message_id)
+        .where(
+            and_(
+                MessageReceipt.recipient_id == recipient_id,
+                MessageReceipt.status == "sent",
+            )
+        )
+    )
+    by_conv: dict[UUID, list[MessageReceipt]] = {}
+    now = utcnow()
+    for receipt, conversation_id in result.all():
+        receipt.status = "delivered"
+        receipt.updated_at = now
+        by_conv.setdefault(conversation_id, []).append(receipt)
+    if by_conv:
+        await db.commit()
+    return by_conv
+
+
 async def mark_conversation_delivered(
     db: AsyncSession, conversation_id: UUID, recipient_id: UUID
 ) -> list[MessageReceipt]:
-    """Mark SENT receipts as DELIVERED when recipient connects/views conversation."""
+    """Mark SENT receipts as DELIVERED for a single conversation."""
     result = await db.execute(
         select(MessageReceipt).where(
             and_(

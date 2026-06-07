@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate, Navigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
 import {
   ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Loader2, Mail, MessageCircle,
   ShieldCheck, User, Lock, CheckCircle2,
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "Sign in · NexTalk" },
-      { name: "description", content: "Sign in or create your NexTalk account. Secured with two-factor authentication." },
+      { name: "description", content: "Sign in or create your NexTalk account with email or Google." },
     ],
   }),
   component: AuthPage,
@@ -20,12 +20,10 @@ export const Route = createFileRoute("/auth")({
 type Mode = "signin" | "signup" | "forgot" | "reset-sent";
 
 function AuthPage() {
-  const navigate = useNavigate();
-  const { user, loading, pendingMfa } = useAuth();
+  const { user, loading } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
 
-  // Already authed → bounce home
-  if (!loading && user && !pendingMfa) {
+  if (!loading && user) {
     return <Navigate to="/" />;
   }
 
@@ -56,7 +54,7 @@ function AuthPage() {
               Conversations that feel <span className="text-primary">instant</span>, secured by design.
             </h2>
             <ul className="space-y-4 text-sm text-muted-foreground">
-              <Feature icon={<ShieldCheck className="h-4 w-4" />} title="Two-factor authentication" desc="Email & password sign-ins are protected with a one-time code." />
+              <Feature icon={<ShieldCheck className="h-4 w-4" />} title="Firebase authentication" desc="Email, password, and Google sign-in secured by Firebase Auth." />
               <Feature icon={<KeyRound className="h-4 w-4" />} title="Silent token refresh" desc="Sessions renew quietly in the background — no surprise sign-outs." />
               <Feature icon={<CheckCircle2 className="h-4 w-4" />} title="Google one-tap" desc="Bring your Google identity and skip the password entirely." />
             </ul>
@@ -77,9 +75,7 @@ function AuthPage() {
             </div>
 
             <div className="glass-strong rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl">
-              {pendingMfa ? (
-                <MfaStep onDone={() => navigate({ to: "/" })} />
-              ) : mode === "signin" ? (
+              {mode === "signin" ? (
                 <SignInForm onSwitch={setMode} />
               ) : mode === "signup" ? (
                 <SignUpForm onSwitch={setMode} />
@@ -181,7 +177,7 @@ function SignUpForm({ onSwitch }: { onSwitch: (m: Mode) => void }) {
 
   return (
     <>
-      <Header title="Create your account" subtitle="It takes a minute. We'll send a code to confirm it's you." />
+      <Header title="Create your account" subtitle="Pick a username and we'll create your NexTalk profile." />
       <GoogleButton busy={busy === "google"} onClick={async () => { setBusy("google"); try { await signInWithGoogle(); } finally { setBusy("none"); } }} label="Sign up with Google" />
       <Divider />
       <form onSubmit={onSubmit} className="space-y-4">
@@ -213,106 +209,6 @@ function SignUpForm({ onSwitch }: { onSwitch: (m: Mode) => void }) {
         <button onClick={() => onSwitch("signin")} className="text-primary font-medium hover:underline">Sign in</button>
       </p>
     </>
-  );
-}
-
-function MfaStep({ onDone }: { onDone: () => void }) {
-  const { pendingMfa, verifyMfa, cancelMfa } = useAuth();
-  const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""]);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [resendIn, setResendIn] = useState(30);
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
-
-  useEffect(() => {
-    refs.current[0]?.focus();
-  }, []);
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn((v) => v - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendIn]);
-
-  function setAt(i: number, val: string) {
-    const ch = val.replace(/\D/g, "").slice(-1);
-    setDigits((d) => {
-      const next = [...d];
-      next[i] = ch;
-      return next;
-    });
-    if (ch && i < 5) refs.current[i + 1]?.focus();
-  }
-
-  function onKey(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && !digits[i] && i > 0) refs.current[i - 1]?.focus();
-    if (e.key === "ArrowLeft" && i > 0) refs.current[i - 1]?.focus();
-    if (e.key === "ArrowRight" && i < 5) refs.current[i + 1]?.focus();
-  }
-
-  function onPaste(e: React.ClipboardEvent<HTMLInputElement>) {
-    const txt = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (!txt) return;
-    e.preventDefault();
-    const next = ["", "", "", "", "", ""];
-    for (let i = 0; i < txt.length; i++) next[i] = txt[i];
-    setDigits(next);
-    refs.current[Math.min(txt.length, 5)]?.focus();
-  }
-
-  async function submit(e?: FormEvent) {
-    e?.preventDefault();
-    const code = digits.join("");
-    if (code.length < 6) { setError("Enter all 6 digits."); return; }
-    setBusy(true); setError(null);
-    try { await verifyMfa(code); onDone(); }
-    catch (err) { setError((err as Error).message); setDigits(["", "", "", "", "", ""]); refs.current[0]?.focus(); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <form onSubmit={submit}>
-      <button type="button" onClick={cancelMfa} className="mb-4 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft className="h-3.5 w-3.5" /> back
-      </button>
-      <div className="mb-6 flex flex-col items-center text-center">
-        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-primary/15 text-primary mb-4">
-          <ShieldCheck className="h-6 w-6" />
-        </div>
-        <h2 className="text-xl font-semibold tracking-tight">Two-factor verification</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Enter the 6-digit code sent to <span className="text-foreground font-medium">{pendingMfa?.email}</span>
-        </p>
-        <p className="mt-2 text-[11px] text-muted-foreground">Demo code: <span className="font-mono text-primary">123456</span></p>
-      </div>
-
-      <div className="flex justify-between gap-2 mb-5">
-        {digits.map((d, i) => (
-          <input
-            key={i}
-            ref={(el) => { refs.current[i] = el; }}
-            value={d}
-            onChange={(e) => setAt(i, e.target.value)}
-            onKeyDown={(e) => onKey(i, e)}
-            onPaste={onPaste}
-            inputMode="numeric"
-            maxLength={1}
-            className="h-14 w-full max-w-[3rem] rounded-xl border border-white/10 bg-surface-2/80 text-center text-xl font-semibold tracking-widest outline-none transition-all focus:border-primary/60 focus:bg-surface-2 focus:ring-2 focus:ring-primary/30"
-          />
-        ))}
-      </div>
-
-      {error && <ErrorNote msg={error} />}
-
-      <PrimaryButton busy={busy}>Verify & continue <ArrowRight className="h-4 w-4" /></PrimaryButton>
-
-      <div className="mt-4 text-center text-xs text-muted-foreground">
-        {resendIn > 0 ? (
-          <>Didn't get it? Resend in <span className="text-foreground">{resendIn}s</span></>
-        ) : (
-          <button type="button" onClick={() => setResendIn(30)} className="text-primary hover:underline">Resend code</button>
-        )}
-      </div>
-    </form>
   );
 }
 

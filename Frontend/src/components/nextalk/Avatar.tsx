@@ -1,4 +1,4 @@
-import { avatarColor, initials } from "@/lib/mock-data";
+import { avatarColor, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Props = {

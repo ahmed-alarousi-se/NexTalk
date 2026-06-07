@@ -13,7 +13,7 @@ from src.models.message import Message, MessageReceipt
 from src.models.user import User
 from src.schemas.conversation import GroupInviteCreate, MemberAdd
 from src.schemas.message import MessageHistoryOut, MessageOut, PaginationOut
-from src.services.conversation_access import require_member
+from src.services.conversation_access import apply_message_visibility, require_member
 from src.services.messaging import process_mark_read
 from src.services.notifications import create_notification
 from src.services.receipts import aggregate_status_for_sender, get_receipts_for_messages, status_upper, utcnow
@@ -55,16 +55,20 @@ async def _pick_color(db: AsyncSession, conversation_id: UUID) -> str:
 
 
 async def _build_list_item(
-    db: AsyncSession, conv: Conversation, current_user: User
+    db: AsyncSession, conv: Conversation, current_user: User, membership: ConversationMember
 ) -> dict:
+    last_msg_query = select(Message).where(Message.conversation_id == conv.id)
+    last_msg_query = apply_message_visibility(last_msg_query, membership)
     last_msg_result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conv.id)
-        .order_by(desc(Message.cursor_key))
-        .limit(1)
+        last_msg_query.order_by(desc(Message.cursor_key)).limit(1)
     )
     last_msg = last_msg_result.scalar_one_or_none()
-    unread_count = await count_unread_in_conversation(db, conv.id, current_user.id)
+    unread_count = await count_unread_in_conversation(
+        db,
+        conv.id,
+        current_user.id,
+        messages_hidden_before=membership.messages_hidden_before,
+    )
 
     other_user = None
     if conv.type == "direct":
@@ -147,8 +151,18 @@ async def list_conversations(
         if not conv:
             continue
         mem = membership_map.get(cid)
-        if conv.has_messages or (conv.type == "group" and mem and mem.role == "admin"):
-            items.append(await _build_list_item(db, conv, current_user))
+        if not mem:
+            continue
+        if not (conv.has_messages or (conv.type == "group" and mem.role == "admin")):
+            continue
+        item = await _build_list_item(db, conv, current_user, mem)
+        if (
+            mem.messages_hidden_before is not None
+            and item["last_message"] is None
+            and not (conv.type == "group" and mem.role == "admin")
+        ):
+            continue
+        items.append(item)
 
     items.sort(
         key=lambda x: x["last_message"]["created_at"] if x["last_message"] else datetime.min,
@@ -190,7 +204,7 @@ async def create_conversation(
         )
         existing_conv = existing_result.scalars().first()
         if existing_conv:
-            # Resurface if soft-deleted
+            # Resurface in list without restoring pre-deletion message history.
             mem_result = await db.execute(
                 select(ConversationMember).where(
                     and_(
@@ -307,9 +321,14 @@ async def mark_read(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_member(db, conversation_id, current_user)
+    member = await require_member(db, conversation_id, current_user)
     receipts = await process_mark_read(db, conversation_id, current_user.id)
-    unread = await count_unread_in_conversation(db, conversation_id, current_user.id)
+    unread = await count_unread_in_conversation(
+        db,
+        conversation_id,
+        current_user.id,
+        messages_hidden_before=member.messages_hidden_before,
+    )
     return {
         "marked_read": len(receipts),
         "unread_count": unread,
@@ -336,7 +355,9 @@ async def delete_conversation(
     member = result.scalar_one_or_none()
     if not member:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    member.deleted_at = utcnow()
+    now = utcnow()
+    member.deleted_at = now
+    member.messages_hidden_before = now
     await db.commit()
     ws_manager.leave_conversation(current_user.id, conversation_id)
     await ws_manager.send_to_user(
@@ -740,9 +761,10 @@ async def get_messages(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_member(db, conversation_id, current_user)
+    member = await require_member(db, conversation_id, current_user)
 
     query = select(Message).where(Message.conversation_id == conversation_id)
+    query = apply_message_visibility(query, member)
     if before:
         query = query.where(Message.cursor_key < before)
     query = query.order_by(desc(Message.cursor_key)).limit(limit + 1)

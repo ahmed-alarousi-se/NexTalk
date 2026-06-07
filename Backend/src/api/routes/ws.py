@@ -1,20 +1,26 @@
 """WebSocket route — single /ws endpoint multiplexed per authenticated user."""
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from uuid import UUID
 
-from src.services.websocket import handle_connection
+from fastapi import APIRouter, Query, WebSocket
+
+from src.services.websocket import handle_connection, legacy_conversation_websocket
 
 router = APIRouter(tags=["websocket"])
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     """
     Single persistent connection per user.
-    Auth: token passed as query param  ?token=<access_jwt>
-    Protocol events (JSON):
-        → join_conversation  { type, conversation_id }
-        → send_message       { type, conversation_id, body, image_url? }
-        → typing             { type, conversation_id }
-        ← new_message / typing_indicator / receipt_update / error
+    Auth: token passed as query param ?token=<firebase_id_token>
     """
-    await handle_connection(websocket)
+    await handle_connection(websocket, token)
+
+
+@router.websocket("/ws/{conversation_id}")
+async def legacy_websocket_endpoint(
+    websocket: WebSocket,
+    conversation_id: UUID,
+    token: str = Query(...),
+):
+    await legacy_conversation_websocket(websocket, conversation_id, token)

@@ -1,9 +1,2 @@
-from .user import UserBase, UserCreate, UserUpdate, UserOut, UserSearchOut  # noqa
-from .contact import ContactCreate, ContactOut, MessageRequestOut  # noqa
-from .conversation import (  # noqa
-    ConversationCreateGroup, ConversationCreateDirect,
-    ConversationMemberOut, ConversationOut, ConversationListOut,
-    MemberAdd, GroupInviteCreate, GroupDetailsOut, GroupMemberDetailOut,
-)
-from .message import MessageOut, MessageHistoryOut, PaginationOut  # noqa
-from .notification import NotificationOut  # noqa
+from .user import UserBase, UserUpdate, UserOut, UserSearchOut  # noqa
+from .auth import SyncUserRequest  # noqa

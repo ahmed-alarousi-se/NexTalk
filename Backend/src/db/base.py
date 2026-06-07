@@ -4,4 +4,3 @@ from src.models.contact import Contact, MessageRequest  # noqa
 from src.models.conversation import Conversation, ConversationMember  # noqa
 from src.models.message import Message, MessageReceipt  # noqa
 from src.models.notification import Notification  # noqa
-from src.models.password_reset import PasswordResetToken  # noqa

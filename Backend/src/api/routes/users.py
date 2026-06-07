@@ -3,7 +3,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user
-from src.core.security import hash_password, verify_password
 from src.db.session import get_db
 from src.models.user import User
 from src.schemas.user import UserOut, UserSearchOut, UserUpdate
@@ -36,13 +35,6 @@ async def update_me(
         if (existing_user := existing.scalar_one_or_none()) and existing_user.id != current_user.id:
             raise HTTPException(status_code=409, detail="Username already taken")
         current_user.username = user_in.username
-
-    if user_in.new_password is not None:
-        if not user_in.current_password:
-            raise HTTPException(status_code=400, detail="current_password is required to change password")
-        if not verify_password(user_in.current_password, current_user.password_hash):
-            raise HTTPException(status_code=401, detail="Current password is incorrect")
-        current_user.password_hash = hash_password(user_in.new_password)
 
     await db.commit()
     await db.refresh(current_user)

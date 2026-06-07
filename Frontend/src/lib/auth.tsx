@@ -1,205 +1,259 @@
-/**
- * NexTalk Auth — Frontend mock with a Firebase-shaped surface.
- *
- * In production this layer will wrap Firebase Auth:
- *   - signInWithEmailAndPassword / createUserWithEmailAndPassword
- *   - signInWithPopup(GoogleAuthProvider)
- *   - multiFactor(user).enroll/getSession + PhoneAuthProvider for 2FA
- *   - onIdTokenChanged → refresh access tokens every ~55 min
- *
- * For now we simulate the full lifecycle in-memory + localStorage so the
- * UI flows (sign-in → 2FA → app, refresh, sign-out, password reset)
- * can be designed and exercised without a backend.
- */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  onIdTokenChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  type User as FirebaseUser,
+} from "firebase/auth";
+
+import { getMe, syncUser, updateMe, type ApiUser } from "@/lib/api";
+import { auth } from "@/lib/firebase";
+import { buildTokenInfo, type TokenInfo } from "@/lib/token-utils";
 
 export type AuthUser = {
   uid: string;
+  id: string;
   email: string;
   username: string;
   photoURL?: string | null;
   providerId: "password" | "google.com";
-  mfaEnabled: boolean;
-};
-
-export type AuthSession = {
-  user: AuthUser;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-};
-
-type PendingMfa = {
-  email: string;
-  // 6-digit code; in real life this comes from the authenticator/SMS
-  expectedCode: string;
-  resolveUser: AuthUser;
+  createdAt?: string;
+  emailVerified?: boolean;
 };
 
 type AuthCtx = {
   user: AuthUser | null;
-  session: AuthSession | null;
   loading: boolean;
-  pendingMfa: PendingMfa | null;
-  signInWithEmail: (email: string, password: string) => Promise<{ mfaRequired: boolean }>;
+  idToken: string | null;
+  tokenInfo: TokenInfo | null;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, username: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
-  verifyMfa: (code: string) => Promise<void>;
-  cancelMfa: () => void;
   sendPasswordReset: (email: string) => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
+  getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
+  refreshIdToken: (forceRefresh?: boolean) => Promise<string | null>;
+  updateProfile: (data: { username?: string }) => Promise<void>;
 };
-
-const STORAGE = "nextalk-auth-session";
-const ACCESS_TTL = 55 * 60 * 1000;       // 55 min
-const REFRESH_SKEW = 60 * 1000;           // refresh 60s before expiry
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-function rand(prefix = "tk") {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+function mapProvider(providerId: string | undefined): AuthUser["providerId"] {
+  return providerId === "google.com" ? "google.com" : "password";
 }
-function mintSession(user: AuthUser): AuthSession {
+
+function toAuthUser(fbUser: FirebaseUser, profile: ApiUser): AuthUser {
   return {
-    user,
-    accessToken: rand("at"),
-    refreshToken: rand("rt"),
-    expiresAt: Date.now() + ACCESS_TTL,
+    uid: fbUser.uid,
+    id: profile.id,
+    email: profile.email,
+    username: profile.username,
+    photoURL: profile.avatar_url ?? fbUser.photoURL,
+    providerId: mapProvider(profile.auth_provider),
+    createdAt: profile.created_at,
+    emailVerified: fbUser.emailVerified,
   };
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSession | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [pendingMfa, setPendingMfa] = useState<PendingMfa | null>(null);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+function firebaseErrorMessage(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Invalid email or password.";
+    case "auth/email-already-in-use":
+      return "An account with this email already exists.";
+    case "auth/weak-password":
+      return "Password must be at least 8 characters.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Try again later.";
+    case "auth/popup-closed-by-user":
+      return "Sign-in was cancelled.";
+    default:
+      return (error as Error)?.message || "Authentication failed.";
+  }
+}
 
-  // Hydrate from storage
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE);
-      if (raw) {
-        const s = JSON.parse(raw) as AuthSession;
-        if (s.expiresAt > Date.now()) setSession(s);
-        else localStorage.removeItem(STORAGE);
-      }
-    } catch {
-      // noop
+async function loadProfile(fbUser: FirebaseUser, username?: string): Promise<AuthUser> {
+  const token = await fbUser.getIdToken();
+  try {
+    const profile = await getMe(token);
+    return toAuthUser(fbUser, profile);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (!message.includes("not found") && !message.includes("404")) {
+      throw error;
     }
-    setLoading(false);
-  }, []);
+    const profile = await syncUser(token, username);
+    return toAuthUser(fbUser, profile);
+  }
+}
 
-  // Persist + schedule silent refresh
-  const persist = useCallback((s: AuthSession | null) => {
-    if (s) localStorage.setItem(STORAGE, JSON.stringify(s));
-    else localStorage.removeItem(STORAGE);
-    setSession(s);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [idToken, setIdToken] = useState<string | null>(null);
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [clock, setClock] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    if (!session) return;
-    const ms = Math.max(5_000, session.expiresAt - Date.now() - REFRESH_SKEW);
-    refreshTimer.current = setTimeout(() => {
-      // Mock: rotate access token, keep refresh token + user
-      persist({
-        ...session,
-        accessToken: rand("at"),
-        expiresAt: Date.now() + ACCESS_TTL,
-      });
-    }, ms);
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    };
-  }, [session, persist]);
+    if (!idToken) {
+      setTokenInfo(null);
+      return;
+    }
+    setTokenInfo(buildTokenInfo(idToken, clock));
+  }, [idToken, clock]);
+
+  useEffect(() => {
+    return onIdTokenChanged(auth, async (fbUser) => {
+      if (!fbUser) {
+        setUser(null);
+        setIdToken(null);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const token = await fbUser.getIdToken();
+        setIdToken(token);
+        const profile = await loadProfile(fbUser);
+        setUser(profile);
+      } catch {
+        setUser(null);
+        setIdToken(null);
+      } finally {
+        setLoading(false);
+      }
+    });
+  }, []);
+
+  const refreshIdToken = useCallback(async (forceRefresh = false) => {
+    const fbUser = auth.currentUser;
+    if (!fbUser) return null;
+    const token = await fbUser.getIdToken(forceRefresh);
+    setIdToken(token);
+    return token;
+  }, []);
+
+  const getIdToken = useCallback(async (forceRefresh = false) => {
+    return refreshIdToken(forceRefresh);
+  }, [refreshIdToken]);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    await new Promise((r) => setTimeout(r, 600));
-    if (!email || password.length < 6) throw new Error("Invalid email or password.");
-    const username = email.split("@")[0];
-    const user: AuthUser = {
-      uid: rand("uid"),
-      email,
-      username,
-      providerId: "password",
-      mfaEnabled: true, // by spec: 2FA on for email/password
-    };
-    // Stage 2FA
-    const code = "123456"; // demo code shown in UI hint
-    setPendingMfa({ email, expectedCode: code, resolveUser: user });
-    return { mfaRequired: true };
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const profile = await loadProfile(cred.user);
+      setUser(profile);
+      setIdToken(await cred.user.getIdToken());
+    } catch (error) {
+      throw new Error(firebaseErrorMessage(error));
+    }
   }, []);
 
   const signUpWithEmail = useCallback(async (email: string, password: string, username: string) => {
-    await new Promise((r) => setTimeout(r, 700));
-    if (!email || password.length < 8) throw new Error("Password must be at least 8 characters.");
-    if (!username) throw new Error("Username is required.");
-    const user: AuthUser = {
-      uid: rand("uid"),
-      email,
-      username,
-      providerId: "password",
-      mfaEnabled: true,
-    };
-    const code = "123456";
-    setPendingMfa({ email, expectedCode: code, resolveUser: user });
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const profile = await loadProfile(cred.user, username);
+      setUser(profile);
+      setIdToken(await cred.user.getIdToken());
+    } catch (error) {
+      throw new Error(firebaseErrorMessage(error));
+    }
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    await new Promise((r) => setTimeout(r, 500));
-    const user: AuthUser = {
-      uid: rand("uid"),
-      email: "you@gmail.com",
-      username: "you",
-      photoURL: null,
-      providerId: "google.com",
-      mfaEnabled: false, // Google handles MFA upstream
-    };
-    persist(mintSession(user));
-  }, [persist]);
-
-  const verifyMfa = useCallback(async (code: string) => {
-    await new Promise((r) => setTimeout(r, 400));
-    if (!pendingMfa) throw new Error("No pending verification.");
-    if (code.replace(/\s/g, "") !== pendingMfa.expectedCode) {
-      throw new Error("Invalid verification code.");
+    try {
+      const provider = new GoogleAuthProvider();
+      const cred = await signInWithPopup(auth, provider);
+      const profile = await loadProfile(cred.user);
+      setUser(profile);
+      setIdToken(await cred.user.getIdToken());
+    } catch (error) {
+      throw new Error(firebaseErrorMessage(error));
     }
-    persist(mintSession(pendingMfa.resolveUser));
-    setPendingMfa(null);
-  }, [pendingMfa, persist]);
-
-  const cancelMfa = useCallback(() => setPendingMfa(null), []);
-
-  const sendPasswordReset = useCallback(async (email: string) => {
-    await new Promise((r) => setTimeout(r, 600));
-    if (!email.includes("@")) throw new Error("Enter a valid email.");
   }, []);
 
-  const signOut = useCallback(() => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    persist(null);
-    setPendingMfa(null);
-  }, [persist]);
+  const sendPasswordReset = useCallback(async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email, {
+        url: `${window.location.origin}/reset-password`,
+        handleCodeInApp: true,
+      });
+    } catch (error) {
+      throw new Error(firebaseErrorMessage(error));
+    }
+  }, []);
 
-  const value = useMemo<AuthCtx>(() => ({
-    user: session?.user ?? null,
-    session,
-    loading,
-    pendingMfa,
-    signInWithEmail,
-    signUpWithEmail,
-    signInWithGoogle,
-    verifyMfa,
-    cancelMfa,
-    sendPasswordReset,
-    signOut,
-  }), [session, loading, pendingMfa, signInWithEmail, signUpWithEmail, signInWithGoogle, verifyMfa, cancelMfa, sendPasswordReset, signOut]);
+  const updateProfile = useCallback(async (data: { username?: string }) => {
+    const token = await refreshIdToken();
+    if (!token) throw new Error("Not signed in.");
+    const profile = await updateMe(token, data);
+    const fbUser = auth.currentUser;
+    if (!fbUser) throw new Error("Not signed in.");
+    setUser(toAuthUser(fbUser, profile));
+  }, [refreshIdToken]);
+
+  const signOut = useCallback(async () => {
+    await firebaseSignOut(auth);
+    setUser(null);
+    setIdToken(null);
+    setTokenInfo(null);
+  }, []);
+
+  const value = useMemo<AuthCtx>(
+    () => ({
+      user,
+      loading,
+      idToken,
+      tokenInfo,
+      signInWithEmail,
+      signUpWithEmail,
+      signInWithGoogle,
+      sendPasswordReset,
+      signOut,
+      getIdToken,
+      refreshIdToken,
+      updateProfile,
+    }),
+    [
+      user,
+      loading,
+      idToken,
+      tokenInfo,
+      signInWithEmail,
+      signUpWithEmail,
+      signInWithGoogle,
+      sendPasswordReset,
+      signOut,
+      getIdToken,
+      refreshIdToken,
+      updateProfile,
+    ],
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useAuth must be used within <AuthProvider>");
-  return v;
+  const value = useContext(Ctx);
+  if (!value) throw new Error("useAuth must be used within <AuthProvider>");
+  return value;
 }

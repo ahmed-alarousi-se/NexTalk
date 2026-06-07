@@ -14,7 +14,7 @@ class Message(Base):
     body = Column(Text, nullable=True)  # nullable when image-only message
     image_url = Column(String(1000), nullable=True)  # optional image attachment
     cursor_key = Column(String(26), unique=True, nullable=False)  # ULID
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index('idx_messages_conv_cursor', 'conversation_id', 'cursor_key'),
@@ -28,7 +28,7 @@ class MessageReceipt(Base):
     message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
     recipient_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status = Column(String(10), nullable=False, default="sent")  # 'sent', 'delivered', 'read'
-    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         UniqueConstraint('message_id', 'recipient_id', name='uq_receipt_pair'),

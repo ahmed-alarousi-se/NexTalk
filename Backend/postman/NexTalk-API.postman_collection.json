@@ -1,0 +1,374 @@
+{
+  "info": {
+    "name": "NexTalk API",
+    "description": "NexTalk REST API v2.0\n\n**Setup**\n1. Set `base_url` (default: http://localhost:8000)\n2. Set `token` to your Firebase ID token\n3. Call **Auth → Sync User** first\n\n**Docs:** {{base_url}}/docs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "token", "value": "" },
+    { "key": "conversation_id", "value": "" },
+    { "key": "message_id", "value": "" },
+    { "key": "user_id", "value": "" },
+    { "key": "request_id", "value": "" },
+    { "key": "notification_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "No auth. Returns `{ status, version }`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Sync User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"johndoe\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/auth/sync",
+            "description": "Create or return app user after Firebase sign-in. `username` is optional."
+          }
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/auth/me",
+            "description": "Delete app user and Firebase account. Returns 204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/users/me"
+          }
+        },
+        {
+          "name": "Update Me",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"newname\",\n  \"avatar_url\": \"https://example.com/avatar.jpg\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/users/me",
+            "description": "All fields optional: username, email, avatar_url."
+          }
+        },
+        {
+          "name": "Search Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/search?q=john",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [{ "key": "q", "value": "john", "description": "Username or email" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contacts",
+      "item": [
+        {
+          "name": "List Contacts",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/contacts" }
+        },
+        {
+          "name": "Send Contact Request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"target_user\"\n}" },
+            "url": "{{base_url}}/api/v1/contacts"
+          }
+        },
+        {
+          "name": "Search Contacts",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/contacts/search?q=john",
+              "query": [{ "key": "q", "value": "john" }]
+            }
+          }
+        },
+        {
+          "name": "Remove Contact",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/contacts/{{user_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Message Requests",
+      "item": [
+        {
+          "name": "List Pending",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/message-requests" }
+        },
+        {
+          "name": "Accept",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/message-requests/{{request_id}}/accept"
+          }
+        },
+        {
+          "name": "Decline",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/message-requests/{{request_id}}/decline"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversations",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/conversations" }
+        },
+        {
+          "name": "Unread Counts",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/conversations/unread-counts" }
+        },
+        {
+          "name": "Create Direct",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"direct\",\n  \"participant_id\": \"{{user_id}}\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/conversations"
+          }
+        },
+        {
+          "name": "Create Group",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"group\",\n  \"name\": \"My Group\",\n  \"description\": \"Optional\",\n  \"participant_ids\": [\"{{user_id}}\"]\n}"
+            },
+            "url": "{{base_url}}/api/v1/conversations"
+          }
+        },
+        {
+          "name": "Get Messages",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/messages?limit=30",
+              "query": [
+                { "key": "limit", "value": "30" },
+                { "key": "before", "value": "", "disabled": true, "description": "Cursor for pagination" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark Read",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/read"
+          }
+        },
+        {
+          "name": "Delete (soft)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}"
+          }
+        },
+        {
+          "name": "Update Group",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"New Name\",\n  \"description\": \"New desc\"\n}" },
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}",
+            "description": "Admin only."
+          }
+        },
+        {
+          "name": "Group Details",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/details"
+          }
+        },
+        {
+          "name": "Invite Members",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"user_ids\": [\"{{user_id}}\"]\n}" },
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/invite",
+            "description": "Admin only."
+          }
+        },
+        {
+          "name": "Accept Invitation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/invite/accept"
+          }
+        },
+        {
+          "name": "Reject Invitation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/invite/reject"
+          }
+        },
+        {
+          "name": "Pending Invitations",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/pending-invitations",
+            "description": "Admin only."
+          }
+        },
+        {
+          "name": "Add Member",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}" },
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/members",
+            "description": "Admin only. Direct add, no invite flow."
+          }
+        },
+        {
+          "name": "Remove Member",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/members/{{user_id}}",
+            "description": "Admin only."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"body\": \"Hello!\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/messages",
+            "description": "REST fallback. Prefer WebSocket for real-time. Rate limit: 60/min."
+          }
+        },
+        {
+          "name": "Mark Message Read",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/messages/{{message_id}}/read"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/notifications" }
+        },
+        {
+          "name": "Unread Count",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/notifications/unread-count" }
+        },
+        {
+          "name": "Mark Read",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/notifications/{{notification_id}}/read"
+          }
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/notifications/read-all"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Uploads",
+      "item": [
+        {
+          "name": "Upload Image",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "JPEG, PNG, GIF, WebP — max 10 MB" }
+              ]
+            },
+            "url": "{{base_url}}/api/v1/uploads/image",
+            "description": "Returns `{ url, filename }`. Use url as message image_url."
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket",
+      "description": "Connect: `ws://{{base_url}}/ws?token={{token}}`\n\n**Send:** ping, join_conversation, leave_conversation, typing, send_message, mark_read\n\n**Receive:** pong, new_message, message_sent, message_delivered, message_read, typing_started, typing_stopped, unread_count_updated, notification, contact_request, group_invitation",
+      "item": [
+        {
+          "name": "Example — send_message",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{base_url}}/ws?token={{token}}",
+            "description": "Use Postman WebSocket tab. Send:\n```json\n{ \"type\": \"send_message\", \"conversation_id\": \"{{conversation_id}}\", \"body\": \"Hi\" }\n```"
+          }
+        }
+      ]
+    }
+  ]
+}

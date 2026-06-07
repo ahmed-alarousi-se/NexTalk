@@ -1,28 +1,48 @@
-import os
+import json
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _split_cors_origins(value: str) -> list[str]:
+    stripped = value.strip()
+    if stripped.startswith("["):
+        return json.loads(stripped)
+    return [origin.strip() for origin in stripped.split(",") if origin.strip()]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    DATABASE_URL: str = "postgresql+asyncpg://nexttalk:changeme@localhost:5432/nexttalk"
-    SECRET_KEY: str = "nexTalk-dev-secret-change-in-production"
-    REFRESH_SECRET_KEY: str = "nexTalk-dev-refresh-secret-change-in-production"
+    DATABASE_URL: str = "postgresql+asyncpg://nextalk:changeme@localhost:5432/nexttalk"
 
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
-    FRONTEND_URL: str = "http://localhost:8000"
+    # Firebase Admin
+    FIREBASE_PROJECT_ID: str = "nextalk-ec625"
+    FIREBASE_CREDENTIALS_PATH: str = "nextalk-ec625-firebase-adminsdk-fbsvc-7b131c6cb0.json"
 
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    RESET_TOKEN_EXPIRE_MINUTES: int = 15
+    FRONTEND_URL: str = "http://localhost:5173"
+    # Comma-separated origins (str avoids pydantic-settings JSON parsing on list fields)
+    CORS_ORIGINS: str = (
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173,"
+        "http://localhost:3000,"
+        "http://127.0.0.1:3000,"
+        "http://localhost:8080,"
+        "http://127.0.0.1:8080"
+    )
+    # Dev convenience: allow any localhost port (5173, 8080, etc.)
+    CORS_ALLOW_LOCALHOST: bool = True
 
-    # Include reset token in API response (dev/testing without email)
-    EXPOSE_RESET_TOKEN: bool = True
     MESSAGE_RATE_LIMIT_PER_MINUTE: int = 60
-    BCRYPT_ROUNDS: int = 12
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return _split_cors_origins(self.CORS_ORIGINS)
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        if self.CORS_ALLOW_LOCALHOST:
+            return r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+        return None
 
 
 settings = Settings()

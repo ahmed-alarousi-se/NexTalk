@@ -1,9 +1,20 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
+import { confirmPasswordReset } from "firebase/auth";
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, Lock, MessageCircle } from "lucide-react";
+import { auth } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 
+type ResetSearch = {
+  oobCode?: string;
+  mode?: string;
+};
+
 export const Route = createFileRoute("/reset-password")({
+  validateSearch: (search: Record<string, unknown>): ResetSearch => ({
+    oobCode: typeof search.oobCode === "string" ? search.oobCode : undefined,
+    mode: typeof search.mode === "string" ? search.mode : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Reset password · NexTalk" },
@@ -15,6 +26,7 @@ export const Route = createFileRoute("/reset-password")({
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
+  const { oobCode, mode } = Route.useSearch();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
@@ -22,16 +34,24 @@ function ResetPasswordPage() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const invalidLink = !oobCode || mode !== "resetPassword";
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!oobCode) return setError("Invalid or expired reset link.");
     if (password.length < 8) return setError("Password must be at least 8 characters.");
     if (password !== confirm) return setError("Passwords don't match.");
     setBusy(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setBusy(false);
-    setDone(true);
-    setTimeout(() => navigate({ to: "/auth" }), 1500);
+    try {
+      await confirmPasswordReset(auth, oobCode, password);
+      setDone(true);
+      setTimeout(() => navigate({ to: "/auth" }), 1500);
+    } catch (err) {
+      setError((err as Error).message || "Could not reset password.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -50,7 +70,14 @@ function ResetPasswordPage() {
         </div>
 
         <div className="glass-strong rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl">
-          {done ? (
+          {invalidLink ? (
+            <div className="text-center py-4">
+              <h2 className="text-xl font-semibold tracking-tight">Invalid reset link</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Request a new password reset from the sign-in page.
+              </p>
+            </div>
+          ) : done ? (
             <div className="text-center py-4">
               <div className="grid h-14 w-14 mx-auto place-items-center rounded-2xl bg-primary/15 text-primary mb-4">
                 <CheckCircle2 className="h-6 w-6" />

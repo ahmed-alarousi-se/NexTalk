@@ -51,12 +51,17 @@ async def create_message(
         if m.user_id == sender.id:
             continue
 
-        # Resurrect soft-deleted membership for direct chats
+        # Resurrect list visibility only; message history stays trimmed.
         if m.deleted_at is not None:
             m.deleted_at = None
 
         in_chat = ws_manager.is_user_in_conversation(m.user_id, conversation_id)
-        status = "delivered" if in_chat else "sent"
+        if in_chat:
+            status = "read"
+        elif ws_manager.is_user_online(m.user_id):
+            status = "delivered"
+        else:
+            status = "sent"
         receipt = MessageReceipt(
             message_id=new_msg.id,
             recipient_id=m.user_id,
@@ -114,14 +119,30 @@ async def emit_message_sent(
         {"type": "message_sent", "conversation_id": str(conv_id), "message": payload},
     )
 
+    new_message_event = {
+        "type": "new_message",
+        "conversation_id": str(conv_id),
+        "message": payload,
+    }
     await ws_manager.broadcast_to_conversation(
         conv_id,
-        {"type": "new_message", "conversation_id": str(conv_id), "message": payload},
+        new_message_event,
         exclude_user_id=sender.id,
     )
 
     for r in receipts:
-        if r.status == "delivered":
+        if r.status == "read":
+            await ws_manager.send_to_user(
+                sender.id,
+                {
+                    "type": "message_read",
+                    "conversation_id": str(conv_id),
+                    "message_id": str(msg.id),
+                    "recipient_id": str(r.recipient_id),
+                    "status": "READ",
+                },
+            )
+        elif r.status == "delivered":
             await ws_manager.send_to_user(
                 sender.id,
                 {
@@ -132,6 +153,8 @@ async def emit_message_sent(
                     "status": "DELIVERED",
                 },
             )
+            if not ws_manager.is_user_in_conversation(r.recipient_id, conv_id):
+                await ws_manager.send_to_user(r.recipient_id, new_message_event)
         await _emit_unread_for_user(db, r.recipient_id)
 
 
@@ -174,15 +197,20 @@ async def _emit_unread_for_user(db: AsyncSession, user_id: UUID) -> None:
     )
 
 
+async def process_pending_deliveries(db: AsyncSession, user_id: UUID) -> None:
+    """Mark pending SENT receipts as DELIVERED when a user connects online."""
+    from src.services.receipts import mark_all_pending_delivered
+
+    by_conv = await mark_all_pending_delivered(db, user_id)
+    for conversation_id, receipts in by_conv.items():
+        await emit_receipt_updates(db, conversation_id, receipts, "delivered")
+
+
 async def process_mark_read(
     db: AsyncSession, conversation_id: UUID, user_id: UUID
 ) -> list[MessageReceipt]:
-    from src.services.receipts import mark_conversation_delivered, mark_conversation_read
+    from src.services.receipts import mark_conversation_read
     from src.models.conversation import ConversationMember
-
-    delivered = await mark_conversation_delivered(db, conversation_id, user_id)
-    if delivered:
-        await emit_receipt_updates(db, conversation_id, delivered, "delivered")
 
     read_receipts = await mark_conversation_read(db, conversation_id, user_id)
 

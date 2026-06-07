@@ -15,7 +15,7 @@ class Conversation(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     max_members = Column(Integer, nullable=False, default=50)
     has_messages = Column(Boolean, nullable=False, default=False)  # true once first message sent
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class ConversationMember(Base):
@@ -29,9 +29,11 @@ class ConversationMember(Base):
     # admin/creator always 'accepted'; invited users start 'pending'
     status = Column(String(10), nullable=False, default="accepted")
     color = Column(String(7), nullable=True)  # hex color like #4f8ef7
-    joined_at = Column(DateTime, nullable=False, server_default=func.now())
-    last_read_at = Column(DateTime, nullable=True)
+    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_read_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # Messages at or before this time are hidden for this member (survives list resurrection).
+    messages_hidden_before = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint('conversation_id', 'user_id', name='uq_conv_member'),
