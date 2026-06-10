@@ -11,7 +11,14 @@ from src.models.contact import Contact
 from src.models.conversation import Conversation, ConversationMember
 from src.models.message import Message, MessageReceipt
 from src.models.user import User
-from src.schemas.conversation import GroupInviteCreate, MemberAdd
+from src.schemas.conversation import (
+    ConversationPreferencesUpdate,
+    GroupInviteCreate,
+    MediaHistoryOut,
+    MediaItemOut,
+    MemberAdd,
+)
+from src.services.blocks import is_either_blocked
 from src.schemas.message import MessageHistoryOut, MessageOut, PaginationOut
 from src.services.conversation_access import apply_message_visibility, require_member
 from src.services.messaging import process_mark_read
@@ -90,7 +97,7 @@ async def _build_list_item(
                     "id": u.id,
                     "username": u.username,
                     "avatar_url": u.avatar_url,
-                    "last_seen": u.last_seen,
+                    "last_seen": None if not u.show_last_seen else u.last_seen,
                 }
 
     return {
@@ -108,6 +115,7 @@ async def _build_list_item(
         if last_msg
         else None,
         "unread_count": unread_count,
+        "is_muted": membership.is_muted,
     }
 
 
@@ -120,6 +128,63 @@ async def unread_counts(
 ):
     counts = await get_unread_counts_for_user(db, current_user.id)
     return {"counts": counts, "total_unread": sum(counts.values())}
+
+
+@router.get("/search")
+async def search_groups(
+    q: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Discover groups by name that the current user is not an accepted member of."""
+    accepted_conv_ids = select(ConversationMember.conversation_id).where(
+        and_(
+            ConversationMember.user_id == current_user.id,
+            ConversationMember.status == "accepted",
+            ConversationMember.deleted_at.is_(None),
+        )
+    )
+    result = await db.execute(
+        select(Conversation)
+        .where(
+            and_(
+                Conversation.type == "group",
+                Conversation.name.ilike(f"%{q}%"),
+                ~Conversation.id.in_(accepted_conv_ids),
+            )
+        )
+        .limit(20)
+    )
+    groups = result.scalars().all()
+    items = []
+    for g in groups:
+        count_result = await db.execute(
+            select(func.count())
+            .select_from(ConversationMember)
+            .where(
+                and_(
+                    ConversationMember.conversation_id == g.id,
+                    ConversationMember.status == "accepted",
+                )
+            )
+        )
+        pending_result = await db.execute(
+            select(ConversationMember).where(
+                and_(
+                    ConversationMember.conversation_id == g.id,
+                    ConversationMember.user_id == current_user.id,
+                    ConversationMember.status == "pending",
+                )
+            )
+        )
+        items.append({
+            "id": g.id,
+            "name": g.name,
+            "description": g.description,
+            "member_count": count_result.scalar() or 0,
+            "join_status": "pending" if pending_result.scalar_one_or_none() else None,
+        })
+    return {"groups": items}
 
 
 @router.get("")
@@ -185,6 +250,9 @@ async def create_conversation(
         if not participant_id_str:
             raise HTTPException(status_code=400, detail="participant_id required for direct conversation")
         participant_id = UUID(str(participant_id_str))
+
+        if await is_either_blocked(db, current_user.id, participant_id):
+            raise HTTPException(status_code=403, detail="Cannot message this user")
 
         # Look for an existing shared direct conversation
         my_conv_ids = select(ConversationMember.conversation_id).where(
@@ -622,6 +690,151 @@ async def reject_invitation(
     return {"detail": "Invitation rejected"}
 
 
+@router.post("/{conversation_id}/join-request", status_code=201)
+async def request_join_group(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Request to join a group. Creates a pending membership and notifies admins."""
+    conv_result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conv = conv_result.scalar_one_or_none()
+    if not conv or conv.type != "group":
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    existing = await db.execute(
+        select(ConversationMember).where(
+            and_(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.user_id == current_user.id,
+            )
+        )
+    )
+    member = existing.scalar_one_or_none()
+    if member:
+        if member.status == "accepted" and member.deleted_at is None:
+            raise HTTPException(status_code=409, detail="Already a member")
+        if member.status == "pending":
+            raise HTTPException(status_code=409, detail="Join request already pending")
+        member.status = "pending"
+        member.deleted_at = None
+    else:
+        db.add(ConversationMember(
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+            role="member",
+            status="pending",
+        ))
+    await db.commit()
+
+    admin_result = await db.execute(
+        select(ConversationMember).where(
+            and_(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.role == "admin",
+                ConversationMember.status == "accepted",
+            )
+        )
+    )
+    for admin in admin_result.scalars().all():
+        await create_notification(
+            db,
+            user_id=admin.user_id,
+            notif_type="join_request",
+            title="Join request",
+            body=f"{current_user.username} requested to join '{conv.name}'",
+            data={
+                "group_id": str(conversation_id),
+                "group_name": conv.name,
+                "from_user_id": str(current_user.id),
+                "from_username": current_user.username,
+            },
+        )
+        await ws_manager.send_to_user(
+            admin.user_id,
+            {
+                "type": "join_request",
+                "conversation_id": str(conversation_id),
+                "group_name": conv.name,
+                "from_user_id": str(current_user.id),
+                "from_username": current_user.username,
+            },
+        )
+
+    return {"detail": "Join request sent"}
+
+
+@router.post("/{conversation_id}/leave")
+async def leave_group(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Leave a group voluntarily (removes membership)."""
+    conv_result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conv = conv_result.scalar_one_or_none()
+    if not conv or conv.type != "group":
+        raise HTTPException(status_code=400, detail="Leave is only for group conversations")
+
+    result = await db.execute(
+        select(ConversationMember).where(
+            and_(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.user_id == current_user.id,
+                ConversationMember.status == "accepted",
+            )
+        )
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="Not a group member")
+
+    if member.role == "admin":
+        admin_count = await db.execute(
+            select(func.count())
+            .select_from(ConversationMember)
+            .where(
+                and_(
+                    ConversationMember.conversation_id == conversation_id,
+                    ConversationMember.role == "admin",
+                    ConversationMember.status == "accepted",
+                )
+            )
+        )
+        if (admin_count.scalar() or 0) <= 1:
+            other = await db.execute(
+                select(ConversationMember).where(
+                    and_(
+                        ConversationMember.conversation_id == conversation_id,
+                        ConversationMember.user_id != current_user.id,
+                        ConversationMember.status == "accepted",
+                    )
+                )
+                .limit(1)
+            )
+            successor = other.scalar_one_or_none()
+            if successor:
+                successor.role = "admin"
+
+    await db.delete(member)
+    await db.commit()
+    ws_manager.leave_conversation(current_user.id, conversation_id)
+    await ws_manager.broadcast_to_conversation(
+        conversation_id,
+        {
+            "type": "member_left",
+            "conversation_id": str(conversation_id),
+            "user_id": str(current_user.id),
+            "username": current_user.username,
+        },
+    )
+    await ws_manager.send_to_user(
+        current_user.id,
+        {"type": "conversation_deleted", "conversation_id": str(conversation_id)},
+    )
+    return {"detail": "Left group"}
+
+
 @router.get("/{conversation_id}/pending-invitations")
 async def pending_invitations(
     conversation_id: UUID,
@@ -642,7 +855,11 @@ async def pending_invitations(
 
     result = await db.execute(
         select(ConversationMember).where(
-            and_(ConversationMember.conversation_id == conversation_id, ConversationMember.role == "member")
+            and_(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.role == "member",
+                ConversationMember.status == "pending",
+            )
         )
     )
     members = result.scalars().all()
@@ -751,6 +968,80 @@ async def remove_member(
         await db.commit()
 
 
+# ── Preferences & media ────────────────────────────────────────────────────────
+
+@router.patch("/{conversation_id}/preferences")
+async def update_conversation_preferences(
+    conversation_id: UUID,
+    prefs: ConversationPreferencesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    member = await require_member(db, conversation_id, current_user)
+    member.is_muted = prefs.is_muted
+    await db.commit()
+    return {"conversation_id": str(conversation_id), "is_muted": member.is_muted}
+
+
+@router.get("/{conversation_id}/media", response_model=MediaHistoryOut)
+async def get_conversation_media(
+    conversation_id: UUID,
+    limit: int = Query(30, ge=1, le=50),
+    before: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    member = await require_member(db, conversation_id, current_user)
+
+    query = select(Message).where(
+        and_(
+            Message.conversation_id == conversation_id,
+            Message.image_url.isnot(None),
+            Message.image_url != "",
+        )
+    )
+    query = apply_message_visibility(query, member)
+    if before:
+        query = query.where(Message.cursor_key < before)
+    query = query.order_by(desc(Message.cursor_key)).limit(limit + 1)
+
+    result = await db.execute(query)
+    messages = list(result.scalars().all())
+
+    has_more = len(messages) > limit
+    page = messages[:limit]
+
+    sender_ids = list({m.sender_id for m in page})
+    users_map: dict = {}
+    if sender_ids:
+        u_res = await db.execute(select(User).where(User.id.in_(sender_ids)))
+        users_map = {u.id: u for u in u_res.scalars().all()}
+
+    media_items: list[MediaItemOut] = []
+    for m in page:
+        u = users_map.get(m.sender_id)
+        media_items.append(
+            MediaItemOut(
+                id=m.id,
+                image_url=m.image_url,
+                created_at=m.created_at,
+                sender={
+                    "id": u.id,
+                    "username": u.username,
+                    "avatar_url": u.avatar_url,
+                }
+                if u
+                else {"id": m.sender_id, "username": "unknown", "avatar_url": None},
+            )
+        )
+
+    next_cursor = page[-1].cursor_key if page and has_more else None
+    return MediaHistoryOut(
+        media=media_items,
+        pagination={"next_cursor": next_cursor, "prev_cursor": None, "has_more": has_more},
+    )
+
+
 # ── Message history ────────────────────────────────────────────────────────────
 
 @router.get("/{conversation_id}/messages", response_model=MessageHistoryOut)
@@ -803,6 +1094,7 @@ async def get_messages(
                 image_url=m.image_url,
                 cursor_key=m.cursor_key,
                 created_at=m.created_at,
+                edited_at=m.edited_at,
                 status=status,
                 receipts=[
                     {"recipient_id": r.recipient_id, "status": status_upper(r.status), "updated_at": r.updated_at}
