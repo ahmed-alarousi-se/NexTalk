@@ -2,7 +2,6 @@
 #
 # Setup:
 #   cp .env.example .env          # fill in Firebase values
-#   cp /path/to/service-account.json Backend/firebase-credentials.json
 #   docker compose up --build
 #
 # URLs:
@@ -37,8 +36,8 @@ services:
 
   backend:
     build:
-      context: ./Backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Backend/Dockerfile
       target: development
     restart: unless-stopped
     env_file:
@@ -46,7 +45,7 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-nex_talk}
-      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-/run/secrets/firebase-credentials.json}
+      FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080}
@@ -57,7 +56,6 @@ services:
     volumes:
       - ./Backend/src:/app/src
       - backend_uploads:/app/static/uploads
-      - ${FIREBASE_CREDENTIALS_HOST_PATH:-./Backend/firebase-credentials.json}:/run/secrets/firebase-credentials.json:ro
     depends_on:
       db:
         condition: service_healthy

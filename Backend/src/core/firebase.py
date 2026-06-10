@@ -1,7 +1,7 @@
 """Firebase Admin SDK — ID token verification."""
 
+import json
 from functools import lru_cache
-from pathlib import Path
 
 import firebase_admin
 from firebase_admin import auth as firebase_auth
@@ -12,13 +12,20 @@ from src.core.config import settings
 
 @lru_cache(maxsize=1)
 def _init_firebase() -> None:
-    cred_path = Path(settings.FIREBASE_CREDENTIALS_PATH)
-    if not cred_path.is_file():
+    raw = settings.FIREBASE_CREDENTIALS_JSON.strip()
+    if not raw:
         raise RuntimeError(
-            f"Firebase credentials not found at {cred_path}. "
-            "Set FIREBASE_CREDENTIALS_PATH in .env"
+            "Firebase credentials not configured. "
+            "Set FIREBASE_CREDENTIALS_JSON in .env to your service account JSON."
         )
-    cred = credentials.Certificate(str(cred_path))
+    try:
+        cred_dict = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "FIREBASE_CREDENTIALS_JSON is not valid JSON. "
+            "Paste the full service account JSON on one line."
+        ) from exc
+    cred = credentials.Certificate(cred_dict)
     firebase_admin.initialize_app(cred, {"projectId": settings.FIREBASE_PROJECT_ID})
 
 

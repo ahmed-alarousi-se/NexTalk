@@ -15,10 +15,10 @@ RUN apt-get update \
 # ── Development (hot reload) ──────────────────────────────────────────────────
 FROM base AS development
 
-COPY requirements.txt .
+COPY Backend/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY Backend/ .
 RUN mkdir -p static/uploads
 
 EXPOSE 8000
@@ -28,10 +28,10 @@ CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 # ── Production ────────────────────────────────────────────────────────────────
 FROM base AS production
 
-COPY requirements.txt .
+COPY Backend/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY Backend/ .
 RUN mkdir -p static/uploads
 
 EXPOSE 8000

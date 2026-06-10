@@ -1,0 +1,17 @@
+# Used when building Backend/Dockerfile with repo root as context
+.git
+.gitignore
+Frontend/
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+Backend/.env
+Backend/.env.*
+!Backend/.env.example
+Backend/static/uploads/*
+!Backend/static/uploads/.gitkeep
+*firebase*adminsdk*.json
+firebase-credentials.json

@@ -15,9 +15,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+asyncpg://nextalk:changeme@localhost:5432/nexttalk"
 
-    # Firebase Admin
+    # Firebase Admin — service account JSON (single line, from Firebase Console)
     FIREBASE_PROJECT_ID: str = "nextalk-ec625"
-    FIREBASE_CREDENTIALS_PATH: str = "nextalk-ec625-firebase-adminsdk-fbsvc-7b131c6cb0.json"
+    FIREBASE_CREDENTIALS_JSON: str = ""
 
     FRONTEND_URL: str = "http://localhost:5173"
     # Comma-separated origins (str avoids pydantic-settings JSON parsing on list fields)
