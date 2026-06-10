@@ -53,7 +53,10 @@ RUN npm ci --legacy-peer-deps --omit=dev
 
 COPY --from=build /app/dist ./dist
 
-# Railway injects PORT at runtime; srvx reads PORT and HOST automatically.
-EXPOSE 3000
+# srvx resolves static paths relative to dist/server/ — expose client assets there.
+RUN ln -sf ../client dist/server/public
 
-CMD ["npm", "run", "start"]
+# Railway injects PORT at runtime; srvx reads PORT and HOST automatically.
+EXPOSE 8080
+
+CMD ["./node_modules/.bin/srvx", "serve", "--prod", "--entry", "dist/server/server.js", "--static", "../client"]
