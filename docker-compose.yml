@@ -62,8 +62,8 @@ services:
 
   frontend:
     build:
-      context: ./Frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Frontend/Dockerfile
       target: development
     restart: unless-stopped
     env_file:

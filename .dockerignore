@@ -1,13 +1,14 @@
-# Used when building Backend/Dockerfile with repo root as context
+# Repo root context for Backend/Dockerfile and Frontend/Dockerfile
 .git
 .gitignore
-Frontend/
-**/__pycache__
-**/*.py[cod]
-**/.venv
-**/.pytest_cache
-**/.mypy_cache
-**/.ruff_cache
+
+# Backend
+Backend/.venv
+Backend/**/__pycache__
+Backend/**/*.py[cod]
+Backend/.pytest_cache
+Backend/.mypy_cache
+Backend/.ruff_cache
 Backend/.env
 Backend/.env.*
 !Backend/.env.example
@@ -15,3 +16,16 @@ Backend/static/uploads/*
 !Backend/static/uploads/.gitkeep
 *firebase*adminsdk*.json
 firebase-credentials.json
+
+# Frontend
+Frontend/node_modules
+Frontend/dist
+Frontend/.output
+Frontend/.vinxi
+Frontend/.tanstack
+Frontend/.nitro
+Frontend/.env
+Frontend/.env.*
+!Frontend/.env.example
+Frontend/*.log
+Frontend/npm-debug.log*
