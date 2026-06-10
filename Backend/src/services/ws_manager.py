@@ -16,6 +16,8 @@ class WebSocketManager:
         self.socket_user: Dict[WebSocket, UUID] = {}
         # user_id -> set of conversation_ids they are actively viewing
         self.active_conversations: Dict[UUID, Set[UUID]] = {}
+        # socket -> conversations joined on that connection
+        self.socket_conversations: Dict[WebSocket, Set[UUID]] = {}
         # (conversation_id, user_id) -> asyncio Task for typing stop
         self._typing_tasks: Dict[tuple[UUID, UUID], asyncio.Task] = {}
 
@@ -23,27 +25,56 @@ class WebSocketManager:
         await websocket.accept()
         self.user_sockets.setdefault(user_id, set()).add(websocket)
         self.socket_user[websocket] = user_id
+        self.socket_conversations[websocket] = set()
         self.active_conversations.setdefault(user_id, set())
 
     def disconnect(self, websocket: WebSocket) -> UUID | None:
         user_id = self.socket_user.pop(websocket, None)
         if user_id is None:
             return None
+
+        for conv_id in self.socket_conversations.pop(websocket, set()):
+            self._cancel_typing(conv_id, user_id)
+            if not self._any_socket_in_conversation(user_id, conv_id, exclude=websocket):
+                self.active_conversations.get(user_id, set()).discard(conv_id)
+
         if user_id in self.user_sockets:
             self.user_sockets[user_id].discard(websocket)
             if not self.user_sockets[user_id]:
                 del self.user_sockets[user_id]
-        active = self.active_conversations.pop(user_id, set())
-        for conv_id in active:
-            self._cancel_typing(conv_id, user_id)
+                self.active_conversations.pop(user_id, None)
+
         return user_id
 
-    def join_conversation(self, user_id: UUID, conversation_id: UUID) -> None:
-        self.active_conversations.setdefault(user_id, set()).add(conversation_id)
+    def _any_socket_in_conversation(
+        self, user_id: UUID, conversation_id: UUID, exclude: WebSocket | None = None
+    ) -> bool:
+        for ws in self.user_sockets.get(user_id, set()):
+            if ws is exclude:
+                continue
+            if conversation_id in self.socket_conversations.get(ws, set()):
+                return True
+        return False
 
-    def leave_conversation(self, user_id: UUID, conversation_id: UUID) -> None:
-        if user_id in self.active_conversations:
-            self.active_conversations[user_id].discard(conversation_id)
+    def join_conversation(
+        self, user_id: UUID, conversation_id: UUID, websocket: WebSocket
+    ) -> None:
+        self.active_conversations.setdefault(user_id, set()).add(conversation_id)
+        self.socket_conversations.setdefault(websocket, set()).add(conversation_id)
+
+    def leave_conversation(
+        self,
+        user_id: UUID,
+        conversation_id: UUID,
+        websocket: WebSocket | None = None,
+    ) -> None:
+        if websocket is not None:
+            self.socket_conversations.get(websocket, set()).discard(conversation_id)
+        else:
+            for ws in list(self.user_sockets.get(user_id, set())):
+                self.socket_conversations.get(ws, set()).discard(conversation_id)
+        if not self._any_socket_in_conversation(user_id, conversation_id):
+            self.active_conversations.get(user_id, set()).discard(conversation_id)
         self._cancel_typing(conversation_id, user_id)
 
     def is_user_online(self, user_id: UUID) -> bool:
@@ -60,11 +91,15 @@ class WebSocketManager:
         }
 
     async def send_to_user(self, user_id: UUID, payload: dict) -> None:
+        dead: list[WebSocket] = []
         for ws in list(self.user_sockets.get(user_id, set())):
             try:
                 await ws.send_json(payload)
             except Exception as e:
-                logger.warning("WS send failed user=%s: %s", user_id, e)
+                logger.debug("WS send failed user=%s, pruning socket: %s", user_id, e)
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
 
     async def broadcast_to_conversation(
         self,

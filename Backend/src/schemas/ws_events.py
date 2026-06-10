@@ -40,5 +40,52 @@ class WsMarkRead(BaseModel):
     conversation_id: UUID
 
 
+class WsEditMessage(BaseModel):
+    type: Literal["edit_message"]
+    message_id: UUID
+    body: str = Field(min_length=1, max_length=10000)
+
+
 class WsPing(BaseModel):
     type: Literal["ping"]
+
+
+class WsCallInvite(BaseModel):
+    type: Literal["call_invite"]
+    call_id: UUID
+    to_user_id: UUID
+    conversation_id: UUID
+    call_type: Literal["audio", "video"]
+
+
+class WsCallAccept(BaseModel):
+    type: Literal["call_accept"]
+    call_id: UUID
+
+
+class WsCallReject(BaseModel):
+    type: Literal["call_reject"]
+    call_id: UUID
+
+
+class WsCallEnd(BaseModel):
+    type: Literal["call_end"]
+    call_id: UUID
+
+
+class WsCallOffer(BaseModel):
+    type: Literal["call_offer"]
+    call_id: UUID
+    sdp: dict
+
+
+class WsCallAnswer(BaseModel):
+    type: Literal["call_answer"]
+    call_id: UUID
+    sdp: dict
+
+
+class WsIceCandidate(BaseModel):
+    type: Literal["ice_candidate"]
+    call_id: UUID
+    candidate: dict
