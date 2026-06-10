@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Text, ForeignKey, Index, UniqueConstraint
 from src.db.types import UTCDateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from src.db.base_class import Base
 
@@ -12,8 +12,10 @@ class Message(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     sender_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    body = Column(Text, nullable=True)  # nullable when image-only message
+    body = Column(Text, nullable=True)  # nullable when image-only or call log message
     image_url = Column(String(1000), nullable=True)  # optional image attachment
+    message_type = Column(String(10), nullable=False, default="text")  # text | call
+    call_log = Column(JSONB, nullable=True)
     cursor_key = Column(String(26), unique=True, nullable=False)  # ULID
     created_at = Column(UTCDateTime, nullable=False, server_default=func.now())
     edited_at = Column(UTCDateTime, nullable=True)

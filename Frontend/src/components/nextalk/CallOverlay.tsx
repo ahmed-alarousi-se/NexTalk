@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, PhoneMissed, Video, VideoOff, X } from "lucide-react";
 
 import { Avatar } from "./Avatar";
+import { MISSED_CALL_QUICK_MESSAGES } from "@/lib/call-log";
 import { useCalls } from "@/lib/use-calls";
-import { hasVideoTrack } from "@/lib/webrtc";
+import { hasAudioTrack, hasVideoTrack } from "@/lib/webrtc";
 import { cn } from "@/lib/utils";
 
 function formatDuration(seconds: number): string {
@@ -17,11 +18,14 @@ export function CallOverlay() {
     call,
     localStream,
     remoteStream,
+    missedCallPrompt,
     acceptCall,
     rejectCall,
     endCall,
     toggleMute,
     toggleVideo,
+    sendQuickMessage,
+    dismissMissedCallPrompt,
   } = useCalls();
 
   const [elapsed, setElapsed] = useState(0);
@@ -37,6 +41,16 @@ export function CallOverlay() {
     return () => clearInterval(id);
   }, [call?.startedAt, call?.phase]);
 
+  if (missedCallPrompt && !call) {
+    return (
+      <MissedCallPromptPanel
+        prompt={missedCallPrompt}
+        onSend={sendQuickMessage}
+        onDismiss={dismissMissedCallPrompt}
+      />
+    );
+  }
+
   if (!call || call.phase === "idle" || call.phase === "ended") return null;
 
   const isVideo = call.callType === "video";
@@ -46,6 +60,7 @@ export function CallOverlay() {
   const isActive = call.phase === "active";
   const showVideoStage =
     isVideo && (isConnecting || isActive) && (hasVideoTrack(localStream) || hasVideoTrack(remoteStream));
+  const needsAudioPlayback = (isConnecting || isActive) && hasAudioTrack(remoteStream);
 
   const statusLabel = isIncoming
     ? isVideo
@@ -61,6 +76,8 @@ export function CallOverlay() {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[oklch(0.12_0.02_265)]">
+      {needsAudioPlayback && <AudioFeed stream={remoteStream} />}
+
       {showVideoStage ? (
         <VideoStage
           localStream={localStream}
@@ -89,7 +106,6 @@ export function CallOverlay() {
         </div>
       )}
 
-      {/* Top bar */}
       <div className="absolute top-0 inset-x-0 flex items-center justify-between px-5 py-4 glass-strong border-b border-white/5">
         <div className="min-w-0">
           <p className="text-sm font-semibold truncate">{call.peer.username}</p>
@@ -106,25 +122,14 @@ export function CallOverlay() {
         )}
       </div>
 
-      {/* Controls */}
       <div className="relative px-6 pb-10 pt-6">
         <div className="mx-auto flex max-w-md items-center justify-center gap-5 rounded-3xl border border-white/8 bg-surface/80 backdrop-blur-xl px-6 py-5 shadow-2xl">
           {isIncoming ? (
             <>
-              <CallButton
-                variant="reject"
-                onClick={rejectCall}
-                label="Decline"
-                size="lg"
-              >
+              <CallButton variant="reject" onClick={rejectCall} label="Decline" size="lg">
                 <PhoneOff className="h-6 w-6" />
               </CallButton>
-              <CallButton
-                variant="accept"
-                onClick={() => void acceptCall()}
-                label="Accept"
-                size="lg"
-              >
+              <CallButton variant="accept" onClick={() => void acceptCall()} label="Accept" size="lg">
                 {isVideo ? <Video className="h-6 w-6" /> : <Phone className="h-6 w-6" />}
               </CallButton>
             </>
@@ -161,6 +166,82 @@ export function CallOverlay() {
       </div>
     </div>
   );
+}
+
+function MissedCallPromptPanel({
+  prompt,
+  onSend,
+  onDismiss,
+}: {
+  prompt: { peerName: string; callType: string; logStatus: string };
+  onSend: (text: string) => void;
+  onDismiss: () => void;
+}) {
+  const title =
+    prompt.logStatus === "declined"
+      ? "Call declined"
+      : prompt.logStatus === "cancelled"
+        ? "Call cancelled"
+        : "No answer";
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-surface/95 p-6 shadow-2xl backdrop-blur-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-full bg-destructive/15 text-destructive">
+              <PhoneMissed className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-semibold">{title}</p>
+              <p className="text-sm text-muted-foreground">
+                {prompt.callType === "video" ? "Video" : "Voice"} call with {prompt.peerName}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-lg p-2 text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <p className="mt-5 text-sm text-muted-foreground">Send a quick message:</p>
+        <div className="mt-3 flex flex-col gap-2">
+          {MISSED_CALL_QUICK_MESSAGES.map((text) => (
+            <button
+              key={text}
+              type="button"
+              onClick={() => onSend(text)}
+              className="rounded-2xl border border-white/8 bg-surface-2 px-4 py-3 text-left text-sm hover:border-primary/30 hover:bg-primary/5 transition-colors"
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AudioFeed({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    if (stream) {
+      void el.play().catch(() => {
+        // User gesture context should allow playback during active call
+      });
+    }
+  }, [stream]);
+
+  return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
 
 function VideoStage({
@@ -223,9 +304,7 @@ function VideoFeed({
     if (!el) return;
     el.srcObject = stream;
     if (stream) {
-      void el.play().catch(() => {
-        // Autoplay policy — user is already in a call gesture context
-      });
+      void el.play().catch(() => {});
     }
   }, [stream]);
 

@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from uuid import UUID
-from typing import Optional, List
+from typing import Optional, List, Any
 from .user import UserSearchOut
 
 
@@ -19,6 +19,8 @@ class MessageOut(BaseModel):
     sender: UserSearchOut
     body: Optional[str] = None
     image_url: Optional[str] = None
+    message_type: str = "text"
+    call_log: Optional[dict[str, Any]] = None
     cursor_key: str
     created_at: datetime
     edited_at: Optional[datetime] = None

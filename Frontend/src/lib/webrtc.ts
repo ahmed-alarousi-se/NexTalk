@@ -5,6 +5,12 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
 export class WebRtcCall {
   private pc: RTCPeerConnection | null = null;
   private pendingCandidates: RTCIceCandidateInit[] = [];
@@ -21,8 +27,8 @@ export class WebRtcCall {
     this.remoteStream = new MediaStream();
 
     this.localStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: callType === "video",
+      audio: AUDIO_CONSTRAINTS,
+      video: callType === "video" ? { facingMode: "user" } : false,
     });
 
     this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -48,12 +54,9 @@ export class WebRtcCall {
     };
   }
 
-  async createOffer(callType: CallType): Promise<RTCSessionDescriptionInit> {
+  async createOffer(_callType: CallType): Promise<RTCSessionDescriptionInit> {
     if (!this.pc) throw new Error("Peer connection not started");
-    const offer = await this.pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: callType === "video",
-    });
+    const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     return offer;
   }
@@ -126,4 +129,8 @@ export class WebRtcCall {
 
 export function hasVideoTrack(stream: MediaStream | null): boolean {
   return !!stream?.getVideoTracks().some((t) => t.readyState === "live");
+}
+
+export function hasAudioTrack(stream: MediaStream | null): boolean {
+  return !!stream?.getAudioTracks().some((t) => t.readyState === "live");
 }

@@ -104,6 +104,8 @@ def message_payload(
         },
         "body": msg.body,
         "image_url": msg.image_url,
+        "message_type": getattr(msg, "message_type", "text") or "text",
+        "call_log": msg.call_log,
         "cursor_key": msg.cursor_key,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
         "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
@@ -117,6 +119,73 @@ def message_payload(
             for r in receipts
         ],
     }
+
+
+async def create_call_log_message(
+    db: AsyncSession,
+    conversation_id: UUID,
+    caller: User,
+    call_type: str,
+    status: str,
+    duration_seconds: int = 0,
+    call_id: UUID | None = None,
+) -> tuple[Message, list[MessageReceipt]]:
+    """Persist a call history entry visible to both conversation members."""
+    new_msg = Message(
+        conversation_id=conversation_id,
+        sender_id=caller.id,
+        body=None,
+        message_type="call",
+        call_log={
+            "call_type": call_type,
+            "status": status,
+            "duration_seconds": max(0, duration_seconds),
+            "call_id": str(call_id) if call_id else None,
+        },
+        cursor_key=str(ULID()),
+    )
+    db.add(new_msg)
+    await db.flush()
+
+    conv_result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conv = conv_result.scalar_one_or_none()
+    if conv and not conv.has_messages:
+        conv.has_messages = True
+
+    members_result = await db.execute(
+        select(ConversationMember).where(
+            ConversationMember.conversation_id == conversation_id,
+            ConversationMember.status == "accepted",
+        )
+    )
+    all_members = members_result.scalars().all()
+    receipts: list[MessageReceipt] = []
+
+    for m in all_members:
+        if m.user_id == caller.id:
+            continue
+        if m.deleted_at is not None:
+            m.deleted_at = None
+        in_chat = ws_manager.is_user_in_conversation(m.user_id, conversation_id)
+        if in_chat:
+            receipt_status = "read"
+        elif ws_manager.is_user_online(m.user_id):
+            receipt_status = "delivered"
+        else:
+            receipt_status = "sent"
+        receipt = MessageReceipt(
+            message_id=new_msg.id,
+            recipient_id=m.user_id,
+            status=receipt_status,
+        )
+        db.add(receipt)
+        receipts.append(receipt)
+
+    await db.commit()
+    await db.refresh(new_msg)
+    for r in receipts:
+        await db.refresh(r)
+    return new_msg, receipts
 
 
 async def emit_message_sent(

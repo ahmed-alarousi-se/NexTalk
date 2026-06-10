@@ -61,6 +61,24 @@ async def _pick_color(db: AsyncSession, conversation_id: UUID) -> str:
     return MEMBER_COLORS[(count_result.scalar() or 0) % len(MEMBER_COLORS)]
 
 
+def _call_log_preview(call_log: dict) -> str:
+    call_type = call_log.get("call_type", "audio")
+    status = call_log.get("status", "")
+    duration = int(call_log.get("duration_seconds") or 0)
+    label = "Video call" if call_type == "video" else "Voice call"
+    if status == "completed":
+        if duration >= 3600:
+            return f"{label} · {duration // 3600}:{(duration % 3600) // 60:02d}:{duration % 60:02d}"
+        return f"{label} · {duration // 60}:{duration % 60:02d}"
+    if status == "missed":
+        return f"Missed {label.lower()}"
+    if status == "declined":
+        return f"Declined {label.lower()}"
+    if status == "cancelled":
+        return f"Cancelled {label.lower()}"
+    return label
+
+
 async def _build_list_item(
     db: AsyncSession, conv: Conversation, current_user: User, membership: ConversationMember
 ) -> dict:
@@ -107,7 +125,11 @@ async def _build_list_item(
         "description": conv.description,
         "other_user": other_user,
         "last_message": {
-            "body": last_msg.body,
+            "body": (
+                _call_log_preview(last_msg.call_log)
+                if getattr(last_msg, "message_type", "text") == "call" and last_msg.call_log
+                else last_msg.body
+            ),
             "image_url": last_msg.image_url,
             "cursor_key": last_msg.cursor_key,
             "created_at": ensure_utc(last_msg.created_at),
@@ -1094,6 +1116,8 @@ async def get_messages(
                 } if u else {"id": m.sender_id, "username": "unknown", "avatar_url": None},
                 body=m.body,
                 image_url=m.image_url,
+                message_type=getattr(m, "message_type", "text") or "text",
+                call_log=m.call_log,
                 cursor_key=m.cursor_key,
                 created_at=m.created_at,
                 edited_at=m.edited_at,

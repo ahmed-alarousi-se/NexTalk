@@ -311,7 +311,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           const muted = qc
             .getQueryData<Conversation[]>(["conversations", user?.id])
             ?.find((c) => c.id === convId)?.is_muted;
-          if (!muted) playNotificationSound();
+          if (!muted && msg.message_type !== "call") playNotificationSound();
         }
       }
 

@@ -9,10 +9,12 @@ import { toast } from "sonner";
 
 import { CallContext, type CallCtx } from "@/lib/calls-context";
 import { useAuth } from "@/lib/auth";
-import { playCallRingtone, stopCallRingtone } from "@/lib/sounds";
-import type { ActiveCall, CallType, Conversation, UserLite } from "@/lib/types";
+import { playIncomingRingtone, playOutgoingRingtone, stopCallRingtone } from "@/lib/sounds";
+import type { ActiveCall, CallType, Conversation, MissedCallPrompt, UserLite } from "@/lib/types";
 import { WebRtcCall } from "@/lib/webrtc";
 import { nexTalkSocket } from "@/lib/ws";
+
+const RING_TIMEOUT_MS = 45_000;
 
 function markActive(call: ActiveCall): ActiveCall {
   return {
@@ -27,12 +29,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [missedCallPrompt, setMissedCallPrompt] = useState<MissedCallPrompt | null>(null);
 
   const callRef = useRef<ActiveCall | null>(null);
   const rtcRef = useRef<WebRtcCall | null>(null);
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   callRef.current = call;
+
+  const clearRingTimeout = useCallback(() => {
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+  }, []);
 
   const flushPendingIce = useCallback(async () => {
     const rtc = rtcRef.current;
@@ -46,21 +57,66 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const cleanup = useCallback(() => {
     stopCallRingtone();
+    clearRingTimeout();
     rtcRef.current?.close();
     rtcRef.current = null;
     pendingIceRef.current = [];
     setLocalStream(null);
     setRemoteStream(null);
     setCall(null);
+  }, [clearRingTimeout]);
+
+  const showMissedPrompt = useCallback(
+    (prompt: MissedCallPrompt) => {
+      setMissedCallPrompt(prompt);
+    },
+    [],
+  );
+
+  const dismissMissedCallPrompt = useCallback(() => {
+    setMissedCallPrompt(null);
   }, []);
+
+  const sendQuickMessage = useCallback(
+    (text: string) => {
+      const prompt = missedCallPrompt;
+      if (!prompt) return;
+      nexTalkSocket.send({
+        type: "send_message",
+        conversation_id: prompt.conversationId,
+        body: text,
+      });
+      setMissedCallPrompt(null);
+      toast.success("Message sent");
+    },
+    [missedCallPrompt],
+  );
+
+  const scheduleRingTimeout = useCallback(() => {
+    clearRingTimeout();
+    ringTimeoutRef.current = setTimeout(() => {
+      const current = callRef.current;
+      if (!current || current.phase !== "outgoing") return;
+      nexTalkSocket.send({ type: "call_end", call_id: current.callId });
+      cleanup();
+    }, RING_TIMEOUT_MS);
+  }, [cleanup, clearRingTimeout]);
 
   const endCall = useCallback(() => {
     const current = callRef.current;
     if (current) {
+      if (current.phase === "outgoing" && current.isCaller) {
+        showMissedPrompt({
+          conversationId: current.conversationId,
+          peerName: current.peer.username,
+          callType: current.callType,
+          logStatus: "cancelled",
+        });
+      }
       nexTalkSocket.send({ type: "call_end", call_id: current.callId });
     }
     cleanup();
-  }, [cleanup]);
+  }, [cleanup, showMissedPrompt]);
 
   const setupRtc = useCallback(
     async (callType: CallType, isCaller: boolean) => {
@@ -121,7 +177,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         localMuted: false,
         videoEnabled: callType === "video",
       });
-      playCallRingtone();
+      playOutgoingRingtone();
+      scheduleRingTimeout();
 
       nexTalkSocket.send({
         type: "call_invite",
@@ -131,7 +188,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         call_type: callType,
       });
     },
-    [user],
+    [scheduleRingTimeout, user],
   );
 
   const acceptCall = useCallback(() => {
@@ -139,6 +196,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!current || current.phase !== "incoming") return;
 
     stopCallRingtone();
+    clearRingTimeout();
     setCall({ ...current, phase: "connecting" });
     nexTalkSocket.send({ type: "call_accept", call_id: current.callId });
 
@@ -146,7 +204,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toast.error("Could not access camera or microphone");
       endCall();
     });
-  }, [endCall, setupRtc]);
+  }, [clearRingTimeout, endCall, setupRtc]);
 
   const rejectCall = useCallback(() => {
     const current = callRef.current;
@@ -192,7 +250,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           localMuted: false,
           videoEnabled: ev.call_type === "video",
         });
-        playCallRingtone();
+        playIncomingRingtone();
         return;
       }
 
@@ -208,6 +266,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!current || current.callId !== ev.call_id || !current.isCaller) return;
 
         stopCallRingtone();
+        clearRingTimeout();
         setCall({ ...current, phase: "connecting" });
         void setupRtc(current.callType, true).catch(() => {
           toast.error("Could not access camera or microphone");
@@ -217,20 +276,59 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
 
       if (ev.type === "call_rejected") {
-        if (callRef.current?.callId === ev.call_id) {
-          toast.info("Call declined");
-          cleanup();
+        const current = callRef.current;
+        if (!current || current.callId !== ev.call_id) return;
+        toast.info("Call declined");
+        if (current.isCaller) {
+          showMissedPrompt({
+            conversationId: current.conversationId,
+            peerName: current.peer.username,
+            callType: current.callType,
+            logStatus: "declined",
+          });
         }
+        cleanup();
+        return;
+      }
+
+      if (ev.type === "call_missed") {
+        const current = callRef.current;
+        if (!current || current.callId !== ev.call_id) return;
+        if (current.isCaller) {
+          toast.info("No answer");
+        } else {
+          toast.info(`Missed ${current.callType} call from ${current.peer.username}`);
+        }
+        showMissedPrompt({
+          conversationId: current.conversationId,
+          peerName: current.peer.username,
+          callType: current.callType,
+          logStatus: "missed",
+        });
+        cleanup();
         return;
       }
 
       if (ev.type === "call_ended") {
-        if (callRef.current?.callId === ev.call_id) {
-          if (ev.reason === "disconnected") {
-            toast.info("Call ended — peer disconnected");
-          }
-          cleanup();
+        const current = callRef.current;
+        if (!current || current.callId !== ev.call_id) return;
+        if (ev.reason === "disconnected") {
+          toast.info("Call ended — peer disconnected");
+        } else if (ev.reason === "cancelled" && !current.isCaller) {
+          toast.info(`Missed ${current.callType} call`);
+        } else if (
+          (ev.reason === "no_answer" || ev.reason === "cancelled" || ev.show_quick_messages) &&
+          current.isCaller
+        ) {
+          toast.info(ev.reason === "cancelled" ? "Call cancelled" : "No answer");
+          showMissedPrompt({
+            conversationId: current.conversationId,
+            peerName: current.peer.username,
+            callType: current.callType,
+            logStatus: ev.reason === "cancelled" ? "cancelled" : "missed",
+          });
         }
+        cleanup();
         return;
       }
 
@@ -295,7 +393,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     });
 
     return off;
-  }, [cleanup, endCall, setupRtc]);
+  }, [cleanup, clearRingTimeout, endCall, setupRtc, showMissedPrompt]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -303,12 +401,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
     call,
     localStream,
     remoteStream,
+    missedCallPrompt,
     startCall,
     acceptCall,
     rejectCall,
     endCall,
     toggleMute,
     toggleVideo,
+    sendQuickMessage,
+    dismissMissedCallPrompt,
   };
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

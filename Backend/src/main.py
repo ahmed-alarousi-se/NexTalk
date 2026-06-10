@@ -93,6 +93,15 @@ async def _apply_schema_patches(conn) -> None:
             "ADD COLUMN IF NOT EXISTS read_receipts_enabled BOOLEAN NOT NULL DEFAULT TRUE"
         )
     )
+    await conn.execute(
+        text(
+            "ALTER TABLE messages "
+            "ADD COLUMN IF NOT EXISTS message_type VARCHAR(10) NOT NULL DEFAULT 'text'"
+        )
+    )
+    await conn.execute(
+        text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS call_log JSONB")
+    )
     await _normalize_timestamp_columns(conn)
 
 

@@ -1,3 +1,5 @@
+import type { CallLog } from "@/lib/call-log";
+
 export type UserLite = {
   id: string;
   username: string;
@@ -13,6 +15,8 @@ export type Message = {
   sender: UserLite;
   body?: string | null;
   image_url?: string | null;
+  message_type?: "text" | "call";
+  call_log?: CallLog | null;
   cursor_key: string;
   created_at: string;
   edited_at?: string | null;
@@ -121,6 +125,13 @@ export type GroupSearchResult = {
 export type CallType = "audio" | "video";
 
 export type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
+
+export type MissedCallPrompt = {
+  conversationId: string;
+  peerName: string;
+  callType: CallType;
+  logStatus: "missed" | "cancelled" | "declined";
+};
 
 export type ActiveCall = {
   callId: string;

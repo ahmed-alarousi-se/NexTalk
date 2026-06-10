@@ -16,10 +16,11 @@ export function playNotificationSound() {
   }
 }
 
-export function playCallRingtone() {
+/** Outgoing call — heard by the caller while ringing. */
+export function playOutgoingRingtone() {
   try {
     stopCallRingtone();
-    ringtoneAudio = new Audio("/calling_resaved.mp3");
+    ringtoneAudio = new Audio("/calling.mp3");
     ringtoneAudio.loop = true;
     ringtoneAudio.volume = 0.55;
     void ringtoneAudio.play().catch(() => {
@@ -28,6 +29,26 @@ export function playCallRingtone() {
   } catch {
     // ignore
   }
+}
+
+/** Incoming call — heard by the callee. */
+export function playIncomingRingtone() {
+  try {
+    stopCallRingtone();
+    ringtoneAudio = new Audio("/calling.mp3");
+    ringtoneAudio.loop = true;
+    ringtoneAudio.volume = 0.7;
+    void ringtoneAudio.play().catch(() => {
+      // Autoplay blocked until user gesture — ignore
+    });
+  } catch {
+    // ignore
+  }
+}
+
+/** @deprecated Use playOutgoingRingtone or playIncomingRingtone */
+export function playCallRingtone() {
+  playOutgoingRingtone();
 }
 
 export function stopCallRingtone() {

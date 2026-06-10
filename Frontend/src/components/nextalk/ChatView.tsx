@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, CheckCheck, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, Send, Smile, Video, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, PhoneIncoming, PhoneMissed, PhoneOff, Send, Smile, Video, X } from "lucide-react";
 import { Avatar } from "./Avatar";
+import { callLogLabel, type CallLog } from "@/lib/call-log";
 import { clockTime, formatLastSeen, mediaUrl } from "@/lib/format";
 import { useChat } from "@/lib/use-chat";
 import { useCalls } from "@/lib/use-calls";
@@ -182,6 +183,19 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
             const mine = m.sender.id === user?.id;
             const prev = messages[i - 1];
             const groupedWithPrev = prev && prev.sender.id === m.sender.id;
+
+            if (m.message_type === "call" && m.call_log) {
+              return (
+                <CallLogBubble
+                  key={m.id}
+                  callLog={m.call_log}
+                  senderId={m.sender.id}
+                  viewerId={user?.id}
+                  createdAt={m.created_at}
+                />
+              );
+            }
+
             return (
               <MessageBubble
                 key={m.id}
@@ -351,4 +365,38 @@ function ReadReceipt({ status }: { status?: MessageStatus }) {
   if (status === "SENT") return <Check className="h-3 w-3" />;
   if (status === "DELIVERED") return <CheckCheck className="h-3 w-3" />;
   return <CheckCheck className="h-3 w-3 text-sky-300" />;
+}
+
+function CallLogBubble({
+  callLog,
+  senderId,
+  viewerId,
+  createdAt,
+}: {
+  callLog: CallLog;
+  senderId: string;
+  viewerId?: string;
+  createdAt: string;
+}) {
+  const { title, subtitle, tone } = callLogLabel(callLog, viewerId, senderId);
+  const Icon =
+    tone === "missed" ? PhoneMissed : tone === "declined" ? PhoneOff : callLog.call_type === "video" ? Video : PhoneIncoming;
+
+  return (
+    <div className="flex justify-center py-2">
+      <div
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-sm",
+          tone === "missed" && "border-destructive/30 bg-destructive/10 text-destructive",
+          tone === "declined" && "border-amber-500/30 bg-amber-500/10 text-amber-200",
+          tone === "neutral" && "border-white/10 bg-surface/80 text-muted-foreground",
+        )}
+      >
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="font-medium">{title}</span>
+        {subtitle && <span className="opacity-80">· {subtitle}</span>}
+        <span className="opacity-60">· {clockTime(createdAt)}</span>
+      </div>
+    </div>
+  );
 }
