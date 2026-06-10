@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, Inbox, LogOut, MessageCircle, Moon, Search, Settings, Sun, Users, PenSquare } from "lucide-react";
+import { Bell, BellOff, Inbox, LogOut, MessageCircle, Moon, Search, Settings, Sun, Users, PenSquare } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { clockTime } from "@/lib/format";
-import { useChat } from "@/lib/chat";
+import { useChat } from "@/lib/use-chat";
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
@@ -26,7 +26,7 @@ export function Sidebar({ activeId, onSelect, onOpenRequests, onOpenNotification
   const [tab, setTab] = useState<Tab>("chats");
   const { theme, toggle } = useTheme();
   const { user, signOut } = useAuth();
-  const { conversations, conversationsLoading, messageRequests, notificationUnread, wsConnected } = useChat();
+  const { conversations, conversationsLoading, messageRequests, notificationUnread, wsConnected, typingConversationIds } = useChat();
 
   const filtered = conversations.filter((c) => {
     const name = c.type === "direct" ? c.other_user?.username ?? "" : c.name ?? "";
@@ -81,7 +81,13 @@ export function Sidebar({ activeId, onSelect, onOpenRequests, onOpenNotification
         ) : (
           <ul className="space-y-1">
             {filtered.map((c) => (
-              <ConversationRow key={c.id} c={c} active={c.id === activeId} onClick={() => onSelect(c.id)} />
+              <ConversationRow
+                key={c.id}
+                c={c}
+                active={c.id === activeId}
+                typing={typingConversationIds.has(c.id)}
+                onClick={() => onSelect(c.id)}
+              />
             ))}
             {filtered.length === 0 && (
               <li className="px-4 py-10 text-center text-sm text-muted-foreground">
@@ -141,9 +147,11 @@ function TabBtn({ active, onClick, icon, label, badge }: { active: boolean; onCl
   );
 }
 
-function ConversationRow({ c, active, onClick }: { c: Conversation; active: boolean; onClick: () => void }) {
+function ConversationRow({ c, active, typing, onClick }: { c: Conversation; active: boolean; typing?: boolean; onClick: () => void }) {
   const name = c.type === "direct" ? c.other_user?.username ?? "Unknown" : c.name ?? "Group";
-  const preview = c.last_message?.body ?? (c.last_message?.image_url ? "📷 Photo" : "No messages yet");
+  const preview = typing
+    ? "typing…"
+    : c.last_message?.body ?? (c.last_message?.image_url ? "📷 Photo" : "No messages yet");
   const ts = c.last_message ? clockTime(c.last_message.created_at) : "";
 
   return (
@@ -162,11 +170,14 @@ function ConversationRow({ c, active, onClick }: { c: Conversation; active: bool
         />
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium truncate">{name}</p>
+            <p className="text-sm font-medium truncate flex items-center gap-1">
+              {name}
+              {c.is_muted && <BellOff className="h-3 w-3 text-muted-foreground shrink-0" />}
+            </p>
             <span className="text-[10px] text-muted-foreground shrink-0">{ts}</span>
           </div>
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <p className="text-xs truncate text-muted-foreground">{preview}</p>
+            <p className={cn("text-xs truncate", typing ? "text-primary" : "text-muted-foreground")}>{preview}</p>
             {c.unread_count > 0 ? (
               <span className="shrink-0 min-w-[18px] h-[18px] px-1.5 grid place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {c.unread_count}

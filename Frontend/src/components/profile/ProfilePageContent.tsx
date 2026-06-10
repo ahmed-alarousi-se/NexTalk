@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/nextalk/Avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { deleteAccount } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/lib/auth";
+import { toast } from "sonner";
 import {
   copyText,
   formatDateTime,
@@ -54,6 +56,8 @@ export function ProfilePageContent({ defaultTab = "general" }: Props) {
   const [securityMsg, setSecurityMsg] = useState<string | null>(null);
   const [securityErr, setSecurityErr] = useState<string | null>(null);
   const [resetBusy, setResetBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   useEffect(() => {
     setTab(defaultTab);
@@ -120,6 +124,21 @@ export function ProfilePageContent({ defaultTab = "general" }: Props) {
       setSecurityErr((err as Error).message);
     } finally {
       setResetBusy(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!idToken || deleteConfirm !== user.username) return;
+    setSecurityErr(null);
+    setDeleteBusy(true);
+    try {
+      await deleteAccount(idToken);
+      toast.success("Account deleted");
+      await signOut();
+    } catch (err) {
+      setSecurityErr((err as Error).message);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -327,6 +346,26 @@ export function ProfilePageContent({ defaultTab = "general" }: Props) {
               >
                 Sign out of this device
               </button>
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+                <p className="text-sm font-medium text-destructive">Delete account</p>
+                <p className="text-xs text-muted-foreground">
+                  Permanently delete your NexTalk account and Firebase identity. Type your username to confirm.
+                </p>
+                <input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={user.username}
+                  className="w-full rounded-lg border border-destructive/20 bg-surface-2 px-3 py-2 text-sm outline-none focus:border-destructive/40"
+                />
+                <button
+                  type="button"
+                  disabled={deleteBusy || deleteConfirm !== user.username}
+                  onClick={() => void handleDeleteAccount()}
+                  className="w-full rounded-lg bg-destructive text-destructive-foreground py-2 text-sm font-medium disabled:opacity-50"
+                >
+                  {deleteBusy ? "Deleting…" : "Delete my account"}
+                </button>
+              </div>
             </div>
           </SectionCard>
 

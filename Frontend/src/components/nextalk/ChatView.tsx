@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, CheckCheck, Image as ImageIcon, Info, Mic, Paperclip, Phone, Send, Smile, Video } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, Send, Smile, Video, X } from "lucide-react";
 import { Avatar } from "./Avatar";
-import { clockTime, mediaUrl } from "@/lib/format";
-import { useChat } from "@/lib/chat";
+import { clockTime, formatLastSeen, mediaUrl } from "@/lib/format";
+import { useChat } from "@/lib/use-chat";
+import { useCalls } from "@/lib/use-calls";
 import { useAuth } from "@/lib/auth";
 import { API_URL } from "@/lib/api";
+import { toast } from "sonner";
 import type { Conversation, Message, MessageStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +28,16 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
     uploadAndSendImage,
     typingInActive,
     typingUsername,
+    editMessageContent,
+    blockedUserIds,
+    onlineUserIds,
   } = useChat();
+  const { startCall, call: activeCall } = useCalls();
 
   const [draft, setDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [uploading, setUploading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -37,7 +46,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   const subtitle = typingInActive
     ? `${typingUsername ?? "Someone"} is typing…`
     : conv.type === "direct"
-      ? conv.online ? "Online" : "Last seen recently"
+      ? conv.online ? "Online" : formatLastSeen(conv.other_user?.last_seen)
       : `${conv.members?.filter((m) => m.status === "accepted").length ?? 0} members`;
 
   useEffect(() => {
@@ -61,12 +70,54 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploading(true);
     try {
       await uploadAndSendImage(file);
     } catch (err) {
-      console.error(err);
+      toast.error((err as Error).message ?? "Failed to upload image");
+    } finally {
+      setUploading(false);
     }
     e.target.value = "";
+  }
+
+  const canCall =
+    conv.type === "direct" &&
+    !!conv.other_user &&
+    !blockedUserIds.has(conv.other_user.id) &&
+    onlineUserIds.has(conv.other_user.id) &&
+    !activeCall;
+
+  function handleStartCall(callType: "audio" | "video") {
+    if (conv.type !== "direct" || !conv.other_user) {
+      toast.error("Calls are only available in direct chats");
+      return;
+    }
+    if (blockedUserIds.has(conv.other_user.id)) {
+      toast.error("Cannot call this user");
+      return;
+    }
+    if (!onlineUserIds.has(conv.other_user.id)) {
+      toast.error("User is offline");
+      return;
+    }
+    if (activeCall) {
+      toast.error("Already in a call");
+      return;
+    }
+    startCall(conv, callType);
+  }
+
+  async function saveEdit(messageId: string) {
+    const body = editDraft.trim();
+    if (!body) return;
+    try {
+      await editMessageContent(messageId, body);
+      setEditingId(null);
+      setEditDraft("");
+    } catch (err) {
+      toast.error((err as Error).message ?? "Failed to edit");
+    }
   }
 
   return (
@@ -89,8 +140,24 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
           </div>
         </button>
         <div className="ml-auto flex items-center gap-1">
-          <HeaderIcon><Phone className="h-4 w-4" /></HeaderIcon>
-          <HeaderIcon><Video className="h-4 w-4" /></HeaderIcon>
+          {conv.type === "direct" && (
+            <>
+              <HeaderIcon
+                onClick={() => handleStartCall("audio")}
+                disabled={!canCall}
+                title={canCall ? "Voice call" : "Unavailable"}
+              >
+                <Phone className="h-4 w-4" />
+              </HeaderIcon>
+              <HeaderIcon
+                onClick={() => handleStartCall("video")}
+                disabled={!canCall}
+                title={canCall ? "Video call" : "Unavailable"}
+              >
+                <Video className="h-4 w-4" />
+              </HeaderIcon>
+            </>
+          )}
           <HeaderIcon onClick={onOpenDetails}><Info className="h-4 w-4" /></HeaderIcon>
         </div>
       </header>
@@ -123,6 +190,12 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
                 showAvatar={!mine && conv.type === "group" && !groupedWithPrev}
                 showName={!mine && conv.type === "group" && !groupedWithPrev}
                 memberColor={conv.members?.find((x) => x.user_id === m.sender.id)?.color ?? undefined}
+                editing={editingId === m.id}
+                editDraft={editDraft}
+                onStartEdit={() => { if (mine && m.body) { setEditingId(m.id); setEditDraft(m.body); } }}
+                onEditDraftChange={setEditDraft}
+                onSaveEdit={() => void saveEdit(m.id)}
+                onCancelEdit={() => { setEditingId(null); setEditDraft(""); }}
               />
             );
           })
@@ -144,7 +217,9 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={(e) => void handleImagePick(e)} />
         <div className="flex items-end gap-2">
           <ComposerIcon><Paperclip className="h-4 w-4" /></ComposerIcon>
-          <ComposerIcon onClick={() => fileRef.current?.click()}><ImageIcon className="h-4 w-4" /></ComposerIcon>
+          <ComposerIcon onClick={() => fileRef.current?.click()} disabled={uploading}>
+            {uploading ? <span className="text-xs">…</span> : <ImageIcon className="h-4 w-4" />}
+          </ComposerIcon>
           <div className="flex-1 flex items-end gap-2 rounded-2xl border border-white/5 bg-surface-2 px-3 py-2 transition-all duration-300 focus-within:border-primary/40">
             <textarea
               rows={1}
@@ -172,26 +247,50 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   );
 }
 
-function HeaderIcon({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function HeaderIcon({
+  children,
+  onClick,
+  disabled,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
-    <button onClick={onClick} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300 disabled:opacity-30 disabled:pointer-events-none"
+    >
       {children}
     </button>
   );
 }
 
-function ComposerIcon({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function ComposerIcon({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
-    <button onClick={onClick} className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300">
+    <button disabled={disabled} onClick={onClick} className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300 disabled:opacity-50">
       {children}
     </button>
   );
 }
 
-function MessageBubble({ m, mine, showAvatar, showName, memberColor }: { m: Message; mine: boolean; showAvatar?: boolean; showName?: boolean; memberColor?: string }) {
+function MessageBubble({
+  m, mine, showAvatar, showName, memberColor,
+  editing, editDraft, onStartEdit, onEditDraftChange, onSaveEdit, onCancelEdit,
+}: {
+  m: Message; mine: boolean; showAvatar?: boolean; showName?: boolean; memberColor?: string;
+  editing?: boolean; editDraft?: string;
+  onStartEdit?: () => void; onEditDraftChange?: (v: string) => void;
+  onSaveEdit?: () => void; onCancelEdit?: () => void;
+}) {
   const imgSrc = mediaUrl(m.image_url, API_URL);
   return (
-    <div className={cn("flex items-end gap-2", mine ? "justify-end" : "justify-start")}>
+    <div className={cn("flex items-end gap-2 group", mine ? "justify-end" : "justify-start")}>
       {!mine && (
         <div className="w-7 shrink-0">
           {showAvatar && <Avatar name={m.sender.username} src={m.sender.avatar_url} size={28} />}
@@ -212,11 +311,33 @@ function MessageBubble({ m, mine, showAvatar, showName, memberColor }: { m: Mess
           )}
         >
           {imgSrc && (
-            <img src={imgSrc} alt="" className="mb-1 rounded-lg max-h-72 object-cover" />
+            <a href={imgSrc} target="_blank" rel="noreferrer">
+              <img src={imgSrc} alt="" className="mb-1 rounded-lg max-h-72 object-cover cursor-pointer" />
+            </a>
           )}
-          {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+          {editing ? (
+            <div className="space-y-2">
+              <textarea
+                value={editDraft}
+                onChange={(e) => onEditDraftChange?.(e.target.value)}
+                className="w-full bg-transparent outline-none resize-none text-sm"
+                rows={2}
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={onCancelEdit} className="text-xs opacity-70 hover:opacity-100"><X className="h-3 w-3 inline" /></button>
+                <button onClick={onSaveEdit} className="text-xs font-medium">Save</button>
+              </div>
+            </div>
+          ) : (
+            m.body && <p className="whitespace-pre-wrap">{m.body}</p>
+          )}
           <div className={cn("flex items-center gap-1 mt-1 text-[10px]", mine ? "text-white/70 justify-end" : "text-muted-foreground")}>
-            <span>{clockTime(m.created_at)}</span>
+            <span>{clockTime(m.created_at)}{m.edited_at ? " · edited" : ""}</span>
+            {mine && !editing && m.body && (
+              <button onClick={onStartEdit} className="opacity-0 group-hover:opacity-100 transition-opacity ml-1" title="Edit">
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
             {mine && <ReadReceipt status={m.status ?? undefined} />}
           </div>
         </div>
