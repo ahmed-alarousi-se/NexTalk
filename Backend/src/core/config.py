@@ -8,32 +8,55 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _url_query_params(url: str) -> dict[str, str]:
+    parsed = urlparse(url)
+    return {
+        part.split("=", 1)[0].lower(): part.split("=", 1)[1]
+        for part in parsed.query.split("&")
+        if "=" in part
+    }
+
+
 def normalize_database_url(url: str) -> str:
     """Convert platform URLs (postgres://, postgresql://) to async SQLAlchemy form."""
     if url.startswith("postgres://"):
-        return "postgresql+asyncpg://" + url.removeprefix("postgres://")
-    if url.startswith("postgresql://") and "+asyncpg" not in url.split("://", 1)[0]:
-        return "postgresql+asyncpg://" + url.removeprefix("postgresql://")
-    return url
+        url = "postgresql+asyncpg://" + url.removeprefix("postgres://")
+    elif url.startswith("postgresql://") and "+asyncpg" not in url.split("://", 1)[0]:
+        url = "postgresql+asyncpg://" + url.removeprefix("postgresql://")
+
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+
+    # asyncpg ignores libpq-only params such as sslmode; SSL is set via connect_args.
+    kept = [
+        part for part in parsed.query.split("&")
+        if part and not part.lower().startswith("sslmode=")
+    ]
+    return parsed._replace(query="&".join(kept)).geturl()
 
 
 def database_connect_args(url: str) -> dict:
-    """Enable SSL for remote Postgres hosts (Railway, Supabase, Neon, etc.)."""
+    """SSL settings for remote Postgres (Railway, Supabase, Neon, etc.)."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if host in {"localhost", "127.0.0.1", "db"}:
         return {}
-    query = dict(
-        part.split("=", 1)
-        for part in parsed.query.split("&")
-        if "=" in part
-    )
-    sslmode = query.get("sslmode", "").lower()
+    # Railway private networking — no TLS (traffic stays on Railway's internal network)
+    if host.endswith(".railway.internal"):
+        return {}
+
+    sslmode = _url_query_params(url).get("sslmode", "require").lower()
     if sslmode == "disable":
         return {}
-    if sslmode or host:
+    if sslmode in {"verify-ca", "verify-full"}:
         return {"ssl": ssl.create_default_context()}
-    return {}
+
+    # require / prefer — encrypt without strict cert verification (Supabase public URLs, etc.)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return {"ssl": ctx}
 
 
 def _split_cors_origins(value: str) -> list[str]:
@@ -86,7 +109,8 @@ class Settings(BaseSettings):
 
     @property
     def async_database_connect_args(self) -> dict:
-        return database_connect_args(self.async_database_url)
+        # Use raw DATABASE_URL so sslmode query params are preserved for connect_args.
+        return database_connect_args(self.DATABASE_URL)
 
     @property
     def cors_origins(self) -> list[str]:
