@@ -27,6 +27,15 @@ export function isOnline(lastSeen: string | null | undefined, windowMs = 120_000
   return Date.now() - new Date(lastSeen).getTime() < windowMs;
 }
 
+export function formatLastSeen(lastSeen: string | null | undefined) {
+  if (!lastSeen) return "Offline";
+  if (isOnline(lastSeen)) return "Online";
+  const d = (Date.now() - new Date(lastSeen).getTime()) / 1000;
+  if (d < 3600) return `Last seen ${Math.max(1, Math.floor(d / 60))}m ago`;
+  if (d < 86400) return `Last seen ${Math.floor(d / 3600)}h ago`;
+  return `Last seen ${Math.floor(d / 86400)}d ago`;
+}
+
 export function mediaUrl(path: string | null | undefined, base: string) {
   if (!path) return null;
   if (path.startsWith("http")) return path;

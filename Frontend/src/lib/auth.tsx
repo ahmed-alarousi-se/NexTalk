@@ -31,6 +31,8 @@ export type AuthUser = {
   providerId: "password" | "google.com";
   createdAt?: string;
   emailVerified?: boolean;
+  showLastSeen: boolean;
+  readReceiptsEnabled: boolean;
 };
 
 type AuthCtx = {
@@ -46,6 +48,7 @@ type AuthCtx = {
   getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
   refreshIdToken: (forceRefresh?: boolean) => Promise<string | null>;
   updateProfile: (data: { username?: string }) => Promise<void>;
+  updatePrivacy: (data: { show_last_seen?: boolean; read_receipts_enabled?: boolean }) => Promise<void>;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -64,6 +67,8 @@ function toAuthUser(fbUser: FirebaseUser, profile: ApiUser): AuthUser {
     providerId: mapProvider(profile.auth_provider),
     createdAt: profile.created_at,
     emailVerified: fbUser.emailVerified,
+    showLastSeen: profile.show_last_seen ?? true,
+    readReceiptsEnabled: profile.read_receipts_enabled ?? true,
   };
 }
 
@@ -211,6 +216,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(toAuthUser(fbUser, profile));
   }, [refreshIdToken]);
 
+  const updatePrivacy = useCallback(async (data: { show_last_seen?: boolean; read_receipts_enabled?: boolean }) => {
+    const token = await refreshIdToken();
+    if (!token) throw new Error("Not signed in.");
+    const profile = await updateMe(token, data);
+    const fbUser = auth.currentUser;
+    if (!fbUser) throw new Error("Not signed in.");
+    setUser(toAuthUser(fbUser, profile));
+  }, [refreshIdToken]);
+
   const signOut = useCallback(async () => {
     await firebaseSignOut(auth);
     setUser(null);
@@ -232,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getIdToken,
       refreshIdToken,
       updateProfile,
+      updatePrivacy,
     }),
     [
       user,
@@ -246,6 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getIdToken,
       refreshIdToken,
       updateProfile,
+      updatePrivacy,
     ],
   );
 

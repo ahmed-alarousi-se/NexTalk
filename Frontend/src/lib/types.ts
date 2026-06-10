@@ -15,6 +15,7 @@ export type Message = {
   image_url?: string | null;
   cursor_key: string;
   created_at: string;
+  edited_at?: string | null;
   status?: MessageStatus | null;
 };
 
@@ -34,9 +35,29 @@ export type Conversation = {
     created_at: string;
   } | null;
   unread_count: number;
+  is_muted?: boolean;
   online?: boolean;
   typing?: boolean;
   typing_username?: string;
+};
+
+export type MediaItem = {
+  id: string;
+  image_url: string;
+  created_at: string;
+  sender: UserLite;
+};
+
+export type BlockedUser = {
+  user_id: string;
+  username: string;
+  avatar_url?: string | null;
+  blocked_at: string;
+};
+
+export type PrivacySettings = {
+  show_last_seen: boolean;
+  read_receipts_enabled: boolean;
 };
 
 export type GroupMember = {
@@ -75,4 +96,40 @@ export type GroupDetails = {
   created_at: string;
   member_count: number;
   members: GroupMember[];
+};
+
+export type Contact = {
+  id: string;
+  user: UserLite;
+  added_at: string;
+};
+
+export type PendingInvitation = {
+  user_id: string;
+  username: string;
+  status: "pending" | "accepted" | "rejected";
+};
+
+export type GroupSearchResult = {
+  id: string;
+  name: string;
+  description?: string | null;
+  member_count: number;
+  join_status?: "pending" | null;
+};
+
+export type CallType = "audio" | "video";
+
+export type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
+
+export type ActiveCall = {
+  callId: string;
+  conversationId: string;
+  callType: CallType;
+  phase: CallPhase;
+  peer: UserLite;
+  isCaller: boolean;
+  localMuted: boolean;
+  videoEnabled: boolean;
+  startedAt?: number;
 };
