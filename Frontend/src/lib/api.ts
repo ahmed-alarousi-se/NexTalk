@@ -13,7 +13,15 @@ import type {
   UserLite,
 } from "@/lib/types";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+function normalizeApiUrl(raw: string | undefined): string {
+  const fallback = "http://localhost:8000";
+  const value = raw?.trim();
+  if (!value) return fallback;
+  if (/^https?:\/\//i.test(value)) return value.replace(/\/$/, "");
+  return `https://${value.replace(/\/$/, "")}`;
+}
+
+export const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
 export type ApiUser = {
   id: string;

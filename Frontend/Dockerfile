@@ -42,18 +42,18 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
 
 RUN npm run build
 
-# ── Production (Node SSR server) ──────────────────────────────────────────────
+# ── Production (Node SSR server via srvx) ─────────────────────────────────────
 FROM base AS production
 
 ENV NODE_ENV=production \
-    HOST=0.0.0.0 \
-    PORT=3000
+    HOST=0.0.0.0
 
 COPY Frontend/package.json Frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps --omit=dev
 
 COPY --from=build /app/dist ./dist
 
+# Railway injects PORT at runtime; srvx reads PORT and HOST automatically.
 EXPOSE 3000
 
-CMD ["node", "dist/server/server.js"]
+CMD ["npm", "run", "start"]
