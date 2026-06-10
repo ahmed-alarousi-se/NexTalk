@@ -34,6 +34,7 @@ class ConversationMember(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     # Messages at or before this time are hidden for this member (survives list resurrection).
     messages_hidden_before = Column(DateTime(timezone=True), nullable=True)
+    is_muted = Column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         UniqueConstraint('conversation_id', 'user_id', name='uq_conv_member'),

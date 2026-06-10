@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
 from typing import Optional, List
+from .message import PaginationOut
 from .user import UserSearchOut
 
 
@@ -83,3 +84,19 @@ class ConversationListOut(BaseModel):
 
 class MemberAdd(BaseModel):
     user_id: UUID
+
+
+class ConversationPreferencesUpdate(BaseModel):
+    is_muted: bool
+
+
+class MediaItemOut(BaseModel):
+    id: UUID
+    image_url: str
+    created_at: datetime
+    sender: UserSearchOut
+
+
+class MediaHistoryOut(BaseModel):
+    media: List[MediaItemOut]
+    pagination: PaginationOut

@@ -2,13 +2,14 @@ from datetime import datetime
 from uuid import UUID
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
 from src.models.conversation import Conversation, ConversationMember
 from src.models.message import Message, MessageReceipt
 from src.models.user import User
+from src.services.blocks import is_either_blocked
 from src.services.receipts import aggregate_status_for_sender, status_upper, utcnow
 from src.services.unread import get_unread_counts_for_user
 from src.services.ws_manager import ws_manager
@@ -22,6 +23,22 @@ async def create_message(
     image_url: Optional[str] = None,
 ) -> tuple[Message, list[MessageReceipt]]:
     """Create a message, mark conversation has_messages, resurrect soft-deleted members."""
+    conv_result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conv = conv_result.scalar_one_or_none()
+    if conv and conv.type == "direct":
+        other_result = await db.execute(
+            select(ConversationMember.user_id).where(
+                and_(
+                    ConversationMember.conversation_id == conversation_id,
+                    ConversationMember.user_id != sender.id,
+                    ConversationMember.status == "accepted",
+                )
+            )
+        )
+        other_id = other_result.scalar_one_or_none()
+        if other_id and await is_either_blocked(db, sender.id, other_id):
+            raise ValueError("Cannot message this user")
+
     new_msg = Message(
         conversation_id=conversation_id,
         sender_id=sender.id,
@@ -32,9 +49,6 @@ async def create_message(
     db.add(new_msg)
     await db.flush()
 
-    # Mark the conversation as having messages (so it appears in lists)
-    conv_result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
-    conv = conv_result.scalar_one_or_none()
     if conv and not conv.has_messages:
         conv.has_messages = True
 
@@ -93,6 +107,7 @@ def message_payload(
         "image_url": msg.image_url,
         "cursor_key": msg.cursor_key,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
         "status": status,
         "receipts": [
             {
@@ -169,6 +184,11 @@ async def emit_receipt_updates(
         msg = msg_q.scalar_one_or_none()
         if not msg:
             continue
+        if new_status == "read":
+            recipient = await db.execute(select(User).where(User.id == r.recipient_id))
+            recipient_user = recipient.scalar_one_or_none()
+            if recipient_user and not recipient_user.read_receipts_enabled:
+                continue
         event = "message_read" if new_status == "read" else "message_delivered"
         await ws_manager.send_to_user(
             msg.sender_id,
@@ -195,6 +215,45 @@ async def _emit_unread_for_user(db: AsyncSession, user_id: UUID) -> None:
             "total_unread": total,
         },
     )
+
+
+async def edit_message(
+    db: AsyncSession,
+    message_id: UUID,
+    editor: User,
+    body: str,
+) -> Message:
+    """Edit a message body. Only the original sender may edit."""
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(Message).where(Message.id == message_id))
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise ValueError("Message not found")
+    if msg.sender_id != editor.id:
+        raise ValueError("Only the sender can edit this message")
+    if not msg.body and msg.image_url:
+        raise ValueError("Image-only messages cannot be edited")
+
+    msg.body = body.strip()
+    msg.edited_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+async def emit_message_edited(msg: Message, editor: User) -> None:
+    payload = {
+        "type": "message_edited",
+        "conversation_id": str(msg.conversation_id),
+        "message": {
+            "id": str(msg.id),
+            "body": msg.body,
+            "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+            "sender_id": str(editor.id),
+        },
+    }
+    await ws_manager.broadcast_to_conversation(msg.conversation_id, payload)
 
 
 async def process_pending_deliveries(db: AsyncSession, user_id: UUID) -> None:

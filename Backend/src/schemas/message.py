@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from uuid import UUID
 from typing import Optional, List
@@ -21,6 +21,7 @@ class MessageOut(BaseModel):
     image_url: Optional[str] = None
     cursor_key: str
     created_at: datetime
+    edited_at: Optional[datetime] = None
     receipts: List[MessageReceiptOut] = []
     status: Optional[str] = None
 
@@ -30,7 +31,28 @@ class MessageOut(BaseModel):
 
 class MessageCreate(BaseModel):
     conversation_id: UUID
+    body: Optional[str] = Field(default=None, max_length=10000)
+    image_url: Optional[str] = None
+
+    @field_validator("body")
+    @classmethod
+    def strip_body(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        s = v.strip()
+        return s if s else None
+
+
+class MessageUpdate(BaseModel):
     body: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("body")
+    @classmethod
+    def strip_body(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("body cannot be empty")
+        return s
 
 
 class MarkReadBody(BaseModel):

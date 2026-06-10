@@ -15,6 +15,7 @@ class Message(Base):
     image_url = Column(String(1000), nullable=True)  # optional image attachment
     cursor_key = Column(String(26), unique=True, nullable=False)  # ULID
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    edited_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index('idx_messages_conv_cursor', 'conversation_id', 'cursor_key'),
