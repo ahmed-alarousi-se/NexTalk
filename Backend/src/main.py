@@ -93,6 +93,36 @@ async def _apply_schema_patches(conn) -> None:
             "ADD COLUMN IF NOT EXISTS read_receipts_enabled BOOLEAN NOT NULL DEFAULT TRUE"
         )
     )
+    await _normalize_timestamp_columns(conn)
+
+
+async def _normalize_timestamp_columns(conn) -> None:
+    """Convert legacy timestamp-without-time-zone columns to timestamptz."""
+    await conn.execute(
+        text(
+            """
+            DO $$
+            DECLARE
+                rec RECORD;
+            BEGIN
+                FOR rec IN
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND data_type = 'timestamp without time zone'
+                LOOP
+                    EXECUTE format(
+                        'ALTER TABLE %I ALTER COLUMN %I TYPE TIMESTAMP WITH TIME ZONE '
+                        'USING %I AT TIME ZONE ''UTC''',
+                        rec.table_name,
+                        rec.column_name,
+                        rec.column_name
+                    );
+                END LOOP;
+            END $$;
+            """
+        )
+    )
 
 
 # ── Lifespan: create tables on startup (migrations handle schema in prod) ──────

@@ -1,13 +1,13 @@
 import uuid
 from sqlalchemy import (
     Column,
-    DateTime,
     ForeignKey,
     String,
     Index,
     UniqueConstraint,
     text,
 )
+from src.db.types import UTCDateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.db.base_class import Base
@@ -30,7 +30,7 @@ class Contact(Base):
         nullable=False,
     )
 
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(UTCDateTime, nullable=False, server_default=func.now())
 
     __table_args__ = (
         # Prevent duplicate contact relations (A->B duplicates)
@@ -66,7 +66,7 @@ class MessageRequest(Base):
     )
 
     status = Column(String(20), nullable=False, default="pending")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(UTCDateTime, nullable=False, server_default=func.now())
 
     __table_args__ = (
         # One request per pair (prevents spam duplicates)

@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +22,8 @@ from src.schemas.message import MessageHistoryOut, MessageOut, PaginationOut
 from src.services.conversation_access import apply_message_visibility, require_member
 from src.services.messaging import process_mark_read
 from src.services.notifications import create_notification
-from src.services.receipts import aggregate_status_for_sender, get_receipts_for_messages, status_upper, utcnow
+from src.services.receipts import aggregate_status_for_sender, get_receipts_for_messages, status_upper
+from src.utils.datetime import ensure_utc, utcnow
 from src.services.unread import count_unread_in_conversation, get_unread_counts_for_user
 from src.services.ws_manager import ws_manager
 
@@ -110,7 +110,7 @@ async def _build_list_item(
             "body": last_msg.body,
             "image_url": last_msg.image_url,
             "cursor_key": last_msg.cursor_key,
-            "created_at": last_msg.created_at,
+            "created_at": ensure_utc(last_msg.created_at),
         }
         if last_msg
         else None,
@@ -230,7 +230,9 @@ async def list_conversations(
         items.append(item)
 
     items.sort(
-        key=lambda x: x["last_message"]["created_at"] if x["last_message"] else datetime.min,
+        key=lambda x: ensure_utc(
+            x["last_message"]["created_at"] if x["last_message"] else None
+        ),
         reverse=True,
     )
     return {"conversations": items}

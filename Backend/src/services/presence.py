@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -7,10 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.conversation import ConversationMember
 from src.models.user import User
 from src.services.ws_manager import ws_manager
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from src.utils.datetime import utcnow as _now
 
 
 async def touch_last_seen(db: AsyncSession, user_id: UUID) -> datetime:

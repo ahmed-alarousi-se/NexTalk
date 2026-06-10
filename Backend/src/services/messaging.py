@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import UUID
 from typing import Optional
 
@@ -224,8 +223,6 @@ async def edit_message(
     body: str,
 ) -> Message:
     """Edit a message body. Only the original sender may edit."""
-    from datetime import datetime, timezone
-
     result = await db.execute(select(Message).where(Message.id == message_id))
     msg = result.scalar_one_or_none()
     if not msg:
@@ -236,7 +233,7 @@ async def edit_message(
         raise ValueError("Image-only messages cannot be edited")
 
     msg.body = body.strip()
-    msg.edited_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    msg.edited_at = utcnow()
     await db.commit()
     await db.refresh(msg)
     return msg

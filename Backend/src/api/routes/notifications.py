@@ -1,5 +1,4 @@
 """Notifications REST routes."""
-from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -12,6 +11,7 @@ from src.models.notification import Notification
 from src.models.user import User
 from src.schemas.notification import NotificationOut
 from src.services.notifications import get_unread_count
+from src.utils.datetime import utcnow
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -57,7 +57,7 @@ async def mark_notification_read(
     )
     notif = result.scalar_one_or_none()
     if notif and notif.read_at is None:
-        notif.read_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        notif.read_at = utcnow()
         await db.commit()
     unread = await get_unread_count(db, current_user.id)
     return {"detail": "Marked read", "unread_count": unread}
@@ -73,7 +73,7 @@ async def mark_all_read(
             and_(Notification.user_id == current_user.id, Notification.read_at.is_(None))
         )
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     for notif in result.scalars().all():
         notif.read_at = now
     await db.commit()

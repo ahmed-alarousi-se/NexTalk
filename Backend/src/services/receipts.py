@@ -1,15 +1,10 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.message import Message, MessageReceipt
-
-
-def utcnow() -> datetime:
-    """Naive UTC for TIMESTAMP WITHOUT TIME ZONE columns."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from src.utils.datetime import utcnow
 
 
 def status_upper(status: str) -> str:

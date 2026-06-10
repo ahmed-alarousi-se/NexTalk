@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, UniqueConstraint, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Index, UniqueConstraint, Boolean
+from src.db.types import UTCDateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.db.base_class import Base
@@ -15,7 +16,7 @@ class Conversation(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     max_members = Column(Integer, nullable=False, default=50)
     has_messages = Column(Boolean, nullable=False, default=False)  # true once first message sent
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(UTCDateTime, nullable=False, server_default=func.now())
 
 
 class ConversationMember(Base):
@@ -29,11 +30,11 @@ class ConversationMember(Base):
     # admin/creator always 'accepted'; invited users start 'pending'
     status = Column(String(10), nullable=False, default="accepted")
     color = Column(String(7), nullable=True)  # hex color like #4f8ef7
-    joined_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    last_read_at = Column(DateTime(timezone=True), nullable=True)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    joined_at = Column(UTCDateTime, nullable=False, server_default=func.now())
+    last_read_at = Column(UTCDateTime, nullable=True)
+    deleted_at = Column(UTCDateTime, nullable=True)
     # Messages at or before this time are hidden for this member (survives list resurrection).
-    messages_hidden_before = Column(DateTime(timezone=True), nullable=True)
+    messages_hidden_before = Column(UTCDateTime, nullable=True)
     is_muted = Column(Boolean, nullable=False, default=False)
 
     __table_args__ = (

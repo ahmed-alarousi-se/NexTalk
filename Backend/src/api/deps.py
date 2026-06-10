@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth as firebase_auth
@@ -9,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.firebase import verify_firebase_token
 from src.db.session import get_db
 from src.models.user import User
+from src.utils.datetime import utcnow
 
 security = HTTPBearer()
 
@@ -41,7 +40,7 @@ async def get_current_user(
             detail="User profile not found. Call POST /auth/sync first.",
         )
 
-    user.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
+    user.last_seen = utcnow()
     await db.commit()
 
     return user

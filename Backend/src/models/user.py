@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Boolean, Column, String, DateTime
+from sqlalchemy import Boolean, Column, String
+from src.db.types import UTCDateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.db.base_class import Base
@@ -14,7 +15,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     auth_provider = Column(String(50), nullable=False, default="password")
     avatar_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    last_seen = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(UTCDateTime, nullable=False, server_default=func.now())
+    last_seen = Column(UTCDateTime, nullable=True)
     show_last_seen = Column(Boolean, nullable=False, default=True)
     read_receipts_enabled = Column(Boolean, nullable=False, default=True)
