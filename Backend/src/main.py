@@ -8,6 +8,8 @@ Run locally (with venv activated):
 Production (via Docker):
     CMD defined in Dockerfile
 """
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +22,36 @@ from src.api import api_router
 from src.core.config import settings
 from src.db.base import Base  # noqa: F401 — registers all models with metadata
 from src.db.session import engine
+
+logger = logging.getLogger(__name__)
+
+DB_STARTUP_ATTEMPTS = 30
+DB_STARTUP_DELAY_SECONDS = 2
+
+
+async def _wait_for_database() -> None:
+    """Retry DB connection while Postgres is starting (Docker / cloud cold boot)."""
+    last_error: Exception | None = None
+    for attempt in range(1, DB_STARTUP_ATTEMPTS + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            if attempt > 1:
+                logger.info("Database connection established on attempt %s", attempt)
+            return
+        except Exception as exc:
+            last_error = exc
+            if attempt == DB_STARTUP_ATTEMPTS:
+                break
+            logger.warning(
+                "Database not ready (attempt %s/%s): %s",
+                attempt,
+                DB_STARTUP_ATTEMPTS,
+                exc,
+            )
+            await asyncio.sleep(DB_STARTUP_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
 
 
 async def _apply_schema_patches(conn) -> None:
@@ -69,6 +101,7 @@ async def lifespan(app: FastAPI):
     # Create static upload directory if missing
     Path("static/uploads").mkdir(parents=True, exist_ok=True)
     # Auto-create tables in development; use Alembic migrations in production
+    await _wait_for_database()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_schema_patches(conn)
