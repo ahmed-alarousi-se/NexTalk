@@ -37,6 +37,30 @@ async def _apply_schema_patches(conn) -> None:
             "WHERE deleted_at IS NOT NULL AND messages_hidden_before IS NULL"
         )
     )
+    await conn.execute(
+        text(
+            "ALTER TABLE messages "
+            "ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP WITH TIME ZONE"
+        )
+    )
+    await conn.execute(
+        text(
+            "ALTER TABLE conversation_members "
+            "ADD COLUMN IF NOT EXISTS is_muted BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+    )
+    await conn.execute(
+        text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS show_last_seen BOOLEAN NOT NULL DEFAULT TRUE"
+        )
+    )
+    await conn.execute(
+        text(
+            "ALTER TABLE users "
+            "ADD COLUMN IF NOT EXISTS read_receipts_enabled BOOLEAN NOT NULL DEFAULT TRUE"
+        )
+    )
 
 
 # ── Lifespan: create tables on startup (migrations handle schema in prod) ──────

@@ -8,6 +8,7 @@ from src.api.deps import get_current_user
 from src.db.session import get_db
 from src.models.contact import Contact, MessageRequest
 from src.models.user import User
+from src.services.ws_manager import ws_manager
 
 router = APIRouter(prefix="/message-requests", tags=["message-requests"])
 
@@ -89,6 +90,15 @@ async def accept_request(
             db.add(Contact(owner_id=owner_id, contact_user_id=contact_id))
 
     await db.commit()
+    await ws_manager.send_to_user(
+        req.from_user_id,
+        {
+            "type": "contact_request_accepted",
+            "from_user_id": str(current_user.id),
+            "from_username": current_user.username,
+            "request_id": str(req.id),
+        },
+    )
     return {"detail": "Request accepted"}
 
 
@@ -111,4 +121,13 @@ async def decline_request(
         raise HTTPException(status_code=404, detail="Request not found")
     req.status = "declined"
     await db.commit()
+    await ws_manager.send_to_user(
+        req.from_user_id,
+        {
+            "type": "contact_request_declined",
+            "from_user_id": str(current_user.id),
+            "from_username": current_user.username,
+            "request_id": str(req.id),
+        },
+    )
     return {"detail": "Request declined"}

@@ -9,6 +9,7 @@ from src.db.session import get_db
 from src.models.contact import Contact, MessageRequest
 from src.models.user import User
 from src.schemas.contact import ContactCreate
+from src.services.blocks import is_either_blocked
 from src.services.notifications import create_notification
 from src.services.ws_manager import ws_manager
 
@@ -41,7 +42,7 @@ async def list_contacts(
                     "avatar_url": u.avatar_url,
                     "last_seen": u.last_seen,
                 },
-                "added_at": c.added_at,
+                "added_at": c.created_at,
             }
             for c in contacts
             if (u := users_map.get(c.contact_user_id))
@@ -62,6 +63,9 @@ async def send_contact_request(
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot add yourself")
+
+    if await is_either_blocked(db, current_user.id, target.id):
+        raise HTTPException(status_code=403, detail="Cannot contact this user")
 
     # Already contacts?
     existing_contact = await db.execute(
