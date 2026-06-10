@@ -82,6 +82,26 @@
           }
         },
         {
+          "name": "List Blocks",
+          "request": { "method": "GET", "url": "{{base_url}}/api/v1/users/blocks" }
+        },
+        {
+          "name": "Block User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}" },
+            "url": "{{base_url}}/api/v1/users/blocks"
+          }
+        },
+        {
+          "name": "Unblock User",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/users/blocks/{{user_id}}"
+          }
+        },
+        {
           "name": "Search Users",
           "request": {
             "method": "GET",
@@ -186,6 +206,56 @@
               "raw": "{\n  \"type\": \"group\",\n  \"name\": \"My Group\",\n  \"description\": \"Optional\",\n  \"participant_ids\": [\"{{user_id}}\"]\n}"
             },
             "url": "{{base_url}}/api/v1/conversations"
+          }
+        },
+        {
+          "name": "Search Groups",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/search?q=mygroup",
+              "query": [{ "key": "q", "value": "mygroup", "description": "Group name search (min 2 chars)" }]
+            },
+            "description": "Discover public groups. Returns groups you are not already a member of."
+          }
+        },
+        {
+          "name": "Request Join Group",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/join-request",
+            "description": "Request to join a group. Admins receive a join_request WebSocket event."
+          }
+        },
+        {
+          "name": "Leave Group",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/leave",
+            "description": "Leave a group conversation (self-remove). Not for direct chats."
+          }
+        },
+        {
+          "name": "Conversation Media",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/media?limit=30",
+              "query": [
+                { "key": "limit", "value": "30" },
+                { "key": "before", "value": "", "disabled": true, "description": "Cursor for pagination" }
+              ]
+            },
+            "description": "Shared images in a conversation."
+          }
+        },
+        {
+          "name": "Mute Conversation",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"is_muted\": true\n}" },
+            "url": "{{base_url}}/api/v1/conversations/{{conversation_id}}/preferences"
           }
         },
         {
@@ -294,10 +364,23 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"body\": \"Hello!\"\n}"
+              "raw": "{\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"body\": \"Hello!\",\n  \"image_url\": \"https://example.com/image.jpg\"\n}"
             },
             "url": "{{base_url}}/api/v1/messages",
-            "description": "REST fallback. Prefer WebSocket for real-time. Rate limit: 60/min."
+            "description": "REST fallback. `body` and/or `image_url` required. Prefer WebSocket for real-time. Rate limit: 60/min."
+          }
+        },
+        {
+          "name": "Edit Message",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Updated text\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/messages/{{message_id}}",
+            "description": "Edit your own message. Also supported via WebSocket `edit_message` event."
           }
         },
         {
@@ -357,15 +440,15 @@
     },
     {
       "name": "WebSocket",
-      "description": "Connect: `ws://{{base_url}}/ws?token={{token}}`\n\n**Send:** ping, join_conversation, leave_conversation, typing, send_message, mark_read\n\n**Receive:** pong, new_message, message_sent, message_delivered, message_read, typing_started, typing_stopped, unread_count_updated, notification, contact_request, group_invitation",
+      "description": "Connect: `ws://localhost:8000/api/v1/ws?token={{token}}` (strip http/https from base_url)\n\n**Send:** ping, join_conversation, leave_conversation, typing, send_message, mark_read, edit_message\n\n**Receive:** connected, pong, new_message, message_sent, message_delivered, message_read, message_edited, typing_started, typing_stopped, presence_updated, unread_count_updated, notification, contact_request, contact_request_accepted, contact_request_declined, group_invitation, join_request, member_left, joined_conversation, conversation_deleted",
       "item": [
         {
           "name": "Example — send_message",
           "request": {
             "auth": { "type": "noauth" },
             "method": "GET",
-            "url": "{{base_url}}/ws?token={{token}}",
-            "description": "Use Postman WebSocket tab. Send:\n```json\n{ \"type\": \"send_message\", \"conversation_id\": \"{{conversation_id}}\", \"body\": \"Hi\" }\n```"
+            "url": "ws://localhost:8000/api/v1/ws?token={{token}}",
+            "description": "Use Postman WebSocket tab. Send:\n```json\n{ \"type\": \"send_message\", \"conversation_id\": \"{{conversation_id}}\", \"body\": \"Hi\" }\n```\n\nEdit message:\n```json\n{ \"type\": \"edit_message\", \"message_id\": \"{{message_id}}\", \"body\": \"Updated\" }\n```"
           }
         }
       ]
