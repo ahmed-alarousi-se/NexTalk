@@ -29,18 +29,33 @@ export function RightPanel({ panel, conv, onClose }: Props) {
         </button>
       </header>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {panel === "details" && conv && <Details conv={conv} />}
-        {panel === "requests" && <Requests />}
-        {panel === "notifications" && <Notifications />}
-        {panel === "discover" && <Discover />}
-        {panel === "settings" && <SettingsPanel />}
+        <PanelContent panel={panel} conv={conv} onClose={onClose} />
       </div>
     </aside>
   );
 }
 
+export function PanelContent({ panel, conv, onClose: _onClose }: Props) {
+  if (!panel) return null;
+  return (
+    <>
+      {panel === "details" && conv && <Details conv={conv} />}
+      {panel === "requests" && <Requests />}
+      {panel === "notifications" && <Notifications />}
+      {panel === "discover" && <Discover />}
+      {panel === "settings" && <SettingsPanel />}
+    </>
+  );
+}
+
 function titleFor(p: Exclude<PanelKind, null>) {
-  return ({ details: "Details", requests: "Message Requests", notifications: "Notifications", discover: "Discover people", settings: "Settings" } as const)[p];
+  return ({
+    details: "Details",
+    requests: "Message Requests",
+    notifications: "Notifications",
+    discover: "Discover people",
+    settings: "Settings",
+  } as const)[p];
 }
 
 type DetailsView = "main" | "media" | "privacy";

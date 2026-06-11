@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import {
   ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Loader2, Mail, MessageCircle,
@@ -39,14 +39,23 @@ function AuthPage() {
       <div className="grid min-h-screen lg:grid-cols-2">
         {/* Brand pane */}
         <aside className="hidden lg:flex flex-col justify-between p-10 xl:p-14 relative">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl gradient-shimmer">
-              <MessageCircle className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-lg font-semibold tracking-tight">NexTalk</p>
-              <p className="text-xs text-muted-foreground -mt-0.5">Realtime messaging, beautifully quiet.</p>
-            </div>
+          <div className="flex items-center justify-between">
+            <Link to="/welcome" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl gradient-shimmer">
+                <MessageCircle className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold tracking-tight">NexTalk</p>
+                <p className="text-xs text-muted-foreground -mt-0.5">Realtime messaging, beautifully quiet.</p>
+              </div>
+            </Link>
+            <Link
+              to="/welcome"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Back to home
+            </Link>
           </div>
 
           <div className="space-y-8 max-w-md">
@@ -67,11 +76,20 @@ function AuthPage() {
         <main className="flex items-center justify-center p-5 sm:p-8">
           <div className="w-full max-w-md">
             {/* Mobile brand */}
-            <div className="flex lg:hidden items-center gap-3 mb-8">
-              <div className="grid h-10 w-10 place-items-center rounded-xl gradient-shimmer">
-                <MessageCircle className="h-4 w-4 text-white" />
-              </div>
-              <p className="text-base font-semibold tracking-tight">NexTalk</p>
+            <div className="flex lg:hidden items-center justify-between mb-8">
+              <Link to="/welcome" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <div className="grid h-10 w-10 place-items-center rounded-xl gradient-shimmer">
+                  <MessageCircle className="h-4 w-4 text-white" />
+                </div>
+                <p className="text-base font-semibold tracking-tight">NexTalk</p>
+              </Link>
+              <Link
+                to="/welcome"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Back
+              </Link>
             </div>
 
             <div className="glass-strong rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl">

@@ -47,6 +47,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   const topRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
 
   const title = conv.type === "direct" ? conv.other_user?.username ?? "Chat" : conv.name ?? "Group";
   const subtitle = typingInActive
@@ -88,7 +89,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
     const ta = textareaRef.current;
     if (ta) {
       ta.style.height = "auto";
-      ta.style.height = `${ta.scrollHeight}px`;
+      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
     }
   }
 
@@ -167,14 +168,19 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   }
 
   return (
-    <section className="flex h-full flex-1 flex-col bg-chat-bg">
-      <header className="flex items-center gap-3 px-3 md:px-5 py-3 border-b border-white/5 glass-strong">
+    <section className="flex h-full flex-1 flex-col bg-chat-bg min-w-0">
+      {/* Header */}
+      <header className="flex items-center gap-2 px-3 md:px-5 py-2.5 border-b border-white/5 glass-strong shrink-0">
         {onBack && (
-          <button onClick={onBack} className="md:hidden grid h-9 w-9 place-items-center rounded-lg hover:bg-white/5 transition-all duration-300">
-            <ArrowLeft className="h-4 w-4" />
+          <button
+            onClick={onBack}
+            className="md:hidden grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 active:bg-white/10 transition-all duration-300 shrink-0"
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-4.5 w-4.5" />
           </button>
         )}
-        <button onClick={onOpenDetails} className="flex items-center gap-3 min-w-0 group">
+        <button onClick={onOpenDetails} className="flex items-center gap-3 min-w-0 flex-1 group py-1">
           <Avatar
             name={title}
             src={conv.type === "direct" ? conv.other_user?.avatar_url : undefined}
@@ -185,7 +191,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
             <p className={cn("text-xs truncate", typingInActive ? "text-primary" : "text-muted-foreground")}>{subtitle}</p>
           </div>
         </button>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex items-center gap-0.5 shrink-0">
           {conv.type === "direct" && (
             <>
               <HeaderIcon
@@ -204,16 +210,19 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
               </HeaderIcon>
             </>
           )}
-          <HeaderIcon onClick={onOpenDetails}><Info className="h-4 w-4" /></HeaderIcon>
+          <HeaderIcon onClick={onOpenDetails} title="Details">
+            <Info className="h-4 w-4" />
+          </HeaderIcon>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 md:px-6 py-6 space-y-1.5">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 md:px-6 py-4 space-y-1.5">
         {hasMoreMessages && (
           <div ref={topRef} className="flex justify-center pb-2">
             <button
               onClick={() => void loadMoreMessages()}
-              className="text-xs text-primary hover:underline"
+              className="text-xs text-primary hover:underline px-4 py-2"
             >
               Load older messages
             </button>
@@ -222,7 +231,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
         {messagesLoading ? (
           <p className="text-center text-sm text-muted-foreground py-8">Loading messages…</p>
         ) : messages.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-8">No messages yet. Say hello!</p>
+          <p className="text-center text-sm text-muted-foreground py-8">No messages yet. Say hello! 👋</p>
         ) : (
           messages.map((m, i) => {
             const mine = m.sender.id === user?.id;
@@ -272,11 +281,25 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
         <div ref={endRef} />
       </div>
 
-      <div className="px-3 md:px-5 py-3 border-t border-white/5 glass-strong">
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={(e) => void handleImagePick(e)} />
-        <div className="relative flex items-end gap-2">
+      {/* Composer */}
+      <div ref={composerRef} className="px-3 md:px-4 py-3 border-t border-white/5 glass-strong shrink-0">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          className="hidden"
+          onChange={(e) => void handleImagePick(e)}
+        />
+        <div className="relative flex items-end gap-1.5 sm:gap-2">
           {showEmojiPicker && (
-            <div ref={emojiPickerRef} className="absolute bottom-full mb-2 right-0 z-50 drop-shadow-2xl">
+            <div
+              ref={emojiPickerRef}
+              className="absolute bottom-full mb-2 z-50 drop-shadow-2xl"
+              style={{
+                right: 0,
+                maxWidth: "min(352px, calc(100vw - 24px))",
+              }}
+            >
               <Picker
                 data={data}
                 onEmojiSelect={handleEmojiSelect}
@@ -286,11 +309,15 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
               />
             </div>
           )}
-          <ComposerIcon><Paperclip className="h-4 w-4" /></ComposerIcon>
-          <ComposerIcon onClick={() => fileRef.current?.click()} disabled={uploading}>
-            {uploading ? <span className="text-xs">…</span> : <ImageIcon className="h-4 w-4" />}
+
+          <ComposerIcon disabled title="Attach file (coming soon)">
+            <Paperclip className="h-4 w-4" />
           </ComposerIcon>
-          <div className="flex-1 flex items-end gap-2 rounded-2xl border border-white/5 bg-surface-2 px-3 py-2 transition-all duration-300 focus-within:border-primary/40">
+          <ComposerIcon onClick={() => fileRef.current?.click()} disabled={uploading} title="Send image">
+            {uploading ? <span className="text-xs font-medium">…</span> : <ImageIcon className="h-4 w-4" />}
+          </ComposerIcon>
+
+          <div className="flex-1 flex items-end gap-2 rounded-2xl border border-white/5 bg-surface-2 px-3 py-2 transition-all duration-300 focus-within:border-primary/40 min-w-0">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -301,24 +328,31 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
               }}
               onBlur={() => sendTyping(false)}
               placeholder="Write a message…"
-              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground max-h-32 overflow-y-auto"
-              style={{ height: "auto" }}
+              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground overflow-y-auto min-w-0"
+              style={{ height: "auto", maxHeight: "120px" }}
             />
             <button
               type="button"
               onClick={() => setShowEmojiPicker((v) => !v)}
-              className={cn("transition-all duration-300", showEmojiPicker ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+              className={cn("shrink-0 grid h-7 w-7 place-items-center rounded-md transition-all duration-300", showEmojiPicker ? "text-primary" : "text-muted-foreground hover:text-foreground")}
               title="Emoji"
             >
               <Smile className="h-4 w-4" />
             </button>
           </div>
+
           {draft.trim() ? (
-            <button onClick={handleSend} className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground hover:scale-105 active:scale-95 transition-all duration-300 shadow-lg shadow-primary/30">
+            <button
+              onClick={handleSend}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground hover:scale-105 active:scale-95 transition-all duration-300 shadow-lg shadow-primary/30"
+              aria-label="Send"
+            >
               <Send className="h-4 w-4" />
             </button>
           ) : (
-            <ComposerIcon><Mic className="h-4 w-4" /></ComposerIcon>
+            <ComposerIcon title="Voice message (coming soon)">
+              <Mic className="h-4 w-4" />
+            </ComposerIcon>
           )}
         </div>
       </div>
@@ -343,16 +377,21 @@ function HeaderIcon({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300 disabled:opacity-30 disabled:pointer-events-none"
+      className="grid h-10 w-10 place-items-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 active:bg-white/10 transition-all duration-300 disabled:opacity-30 disabled:pointer-events-none"
     >
       {children}
     </button>
   );
 }
 
-function ComposerIcon({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
+function ComposerIcon({ children, onClick, disabled, title }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; title?: string }) {
   return (
-    <button disabled={disabled} onClick={onClick} className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-300 disabled:opacity-50">
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5 active:bg-white/10 transition-all duration-300 disabled:opacity-50"
+    >
       {children}
     </button>
   );
@@ -375,7 +414,7 @@ function MessageBubble({
           {showAvatar && <Avatar name={m.sender.username} src={m.sender.avatar_url} size={28} />}
         </div>
       )}
-      <div className={cn("max-w-[78%] md:max-w-[60%] flex flex-col gap-1", mine ? "items-end" : "items-start")}>
+      <div className={cn("max-w-[82%] sm:max-w-[72%] md:max-w-[62%] flex flex-col gap-1", mine ? "items-end" : "items-start")}>
         {showName && (
           <span className="text-[11px] font-semibold px-1" style={{ color: memberColor ?? "var(--color-muted-foreground)" }}>
             {m.sender.username}
@@ -391,7 +430,7 @@ function MessageBubble({
         >
           {imgSrc && (
             <a href={imgSrc} target="_blank" rel="noreferrer">
-              <img src={imgSrc} alt="" className="mb-1 rounded-lg max-h-72 object-cover cursor-pointer" />
+              <img src={imgSrc} alt="" className="mb-1 rounded-lg max-h-64 sm:max-h-72 w-full object-cover cursor-pointer" />
             </a>
           )}
           {editing ? (
@@ -399,21 +438,25 @@ function MessageBubble({
               <textarea
                 value={editDraft}
                 onChange={(e) => onEditDraftChange?.(e.target.value)}
-                className="w-full bg-transparent outline-none resize-none text-sm"
+                className="w-full bg-transparent outline-none resize-none text-sm min-w-[160px]"
                 rows={2}
               />
               <div className="flex gap-2 justify-end">
-                <button onClick={onCancelEdit} className="text-xs opacity-70 hover:opacity-100"><X className="h-3 w-3 inline" /></button>
-                <button onClick={onSaveEdit} className="text-xs font-medium">Save</button>
+                <button onClick={onCancelEdit} className="text-xs opacity-70 hover:opacity-100 p-1">
+                  <X className="h-3.5 w-3.5 inline" />
+                </button>
+                <button onClick={onSaveEdit} className="text-xs font-medium px-2 py-1 rounded-md bg-white/10 hover:bg-white/20">
+                  Save
+                </button>
               </div>
             </div>
           ) : (
-            m.body && <p className="whitespace-pre-wrap">{m.body}</p>
+            m.body && <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
           )}
           <div className={cn("flex items-center gap-1 mt-1 text-[10px]", mine ? "text-white/70 justify-end" : "text-muted-foreground")}>
             <span>{clockTime(m.created_at)}{m.edited_at ? " · edited" : ""}</span>
             {mine && !editing && m.body && (
-              <button onClick={onStartEdit} className="opacity-0 group-hover:opacity-100 transition-opacity ml-1" title="Edit">
+              <button onClick={onStartEdit} className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 p-0.5" title="Edit">
                 <Pencil className="h-3 w-3" />
               </button>
             )}
@@ -459,7 +502,7 @@ function CallLogBubble({
       >
         <Icon className="h-3.5 w-3.5 shrink-0" />
         <span className="font-medium">{title}</span>
-        {subtitle && <span className="opacity-80">· {subtitle}</span>}
+        {subtitle && <span className="opacity-80 hidden sm:inline">· {subtitle}</span>}
         <span className="opacity-60">· {clockTime(createdAt)}</span>
       </div>
     </div>

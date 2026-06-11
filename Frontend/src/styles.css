@@ -119,8 +119,9 @@
 .dark { color-scheme: dark; }
 
 @layer base {
-  * { border-color: var(--color-border); }
+  * { border-color: var(--color-border); box-sizing: border-box; }
   html, body, #root { height: 100%; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -130,7 +131,18 @@
       radial-gradient(900px 600px at 0% 0%, var(--bg-radial-1), transparent 60%),
       radial-gradient(800px 500px at 100% 100%, var(--bg-radial-2), transparent 60%);
     background-attachment: fixed;
+    overflow-x: hidden;
   }
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { user-select: none; }
+}
+
+/* Use dynamic viewport height for full-screen layouts on mobile (iOS Safari fix) */
+@layer utilities {
+  .h-screen { height: 100dvh; }
+  .min-h-screen { min-height: 100dvh; }
 }
 
 @utility glass {
