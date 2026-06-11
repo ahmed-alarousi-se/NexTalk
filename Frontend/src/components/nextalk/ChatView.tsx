@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, CheckCheck, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, PhoneIncoming, PhoneMissed, PhoneOff, Send, Smile, Video, X } from "lucide-react";
+import Picker from "@emoji-mart/react";
+import data from "@emoji-mart/data";
 import { Avatar } from "./Avatar";
 import { callLogLabel, type CallLog } from "@/lib/call-log";
 import { clockTime, formatLastSeen, mediaUrl } from "@/lib/format";
@@ -39,9 +41,12 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   const title = conv.type === "direct" ? conv.other_user?.username ?? "Chat" : conv.name ?? "Group";
   const subtitle = typingInActive
@@ -54,18 +59,37 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, conv.id]);
 
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showEmojiPicker]);
+
   function handleSend() {
     const body = draft.trim();
     if (!body) return;
     sendMessage(body);
     setDraft("");
     sendTyping(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   }
 
   function handleDraftChange(value: string) {
     setDraft(value);
     if (value.trim()) sendTyping(true);
     else sendTyping(false);
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+    }
   }
 
   async function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -107,6 +131,27 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
       return;
     }
     startCall(conv, callType);
+  }
+
+  function handleEmojiSelect(emoji: { native: string }) {
+    const ta = textareaRef.current;
+    if (ta) {
+      const start = ta.selectionStart ?? draft.length;
+      const end = ta.selectionEnd ?? draft.length;
+      const next = draft.slice(0, start) + emoji.native + draft.slice(end);
+      setDraft(next);
+      handleDraftChange(next);
+      requestAnimationFrame(() => {
+        ta.focus();
+        const pos = start + emoji.native.length;
+        ta.setSelectionRange(pos, pos);
+      });
+    } else {
+      const next = draft + emoji.native;
+      setDraft(next);
+      handleDraftChange(next);
+    }
+    setShowEmojiPicker(false);
   }
 
   async function saveEdit(messageId: string) {
@@ -229,13 +274,25 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
 
       <div className="px-3 md:px-5 py-3 border-t border-white/5 glass-strong">
         <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={(e) => void handleImagePick(e)} />
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {showEmojiPicker && (
+            <div ref={emojiPickerRef} className="absolute bottom-full mb-2 right-0 z-50 drop-shadow-2xl">
+              <Picker
+                data={data}
+                onEmojiSelect={handleEmojiSelect}
+                theme="dark"
+                previewPosition="none"
+                skinTonePosition="none"
+              />
+            </div>
+          )}
           <ComposerIcon><Paperclip className="h-4 w-4" /></ComposerIcon>
           <ComposerIcon onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? <span className="text-xs">…</span> : <ImageIcon className="h-4 w-4" />}
           </ComposerIcon>
           <div className="flex-1 flex items-end gap-2 rounded-2xl border border-white/5 bg-surface-2 px-3 py-2 transition-all duration-300 focus-within:border-primary/40">
             <textarea
+              ref={textareaRef}
               rows={1}
               value={draft}
               onChange={(e) => handleDraftChange(e.target.value)}
@@ -244,9 +301,17 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
               }}
               onBlur={() => sendTyping(false)}
               placeholder="Write a message…"
-              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground max-h-32"
+              className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground max-h-32 overflow-y-auto"
+              style={{ height: "auto" }}
             />
-            <button type="button" className="text-muted-foreground hover:text-foreground transition-all duration-300"><Smile className="h-4 w-4" /></button>
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker((v) => !v)}
+              className={cn("transition-all duration-300", showEmojiPicker ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+              title="Emoji"
+            >
+              <Smile className="h-4 w-4" />
+            </button>
           </div>
           {draft.trim() ? (
             <button onClick={handleSend} className="grid h-10 w-10 place-items-center rounded-full bg-primary text-primary-foreground hover:scale-105 active:scale-95 transition-all duration-300 shadow-lg shadow-primary/30">
