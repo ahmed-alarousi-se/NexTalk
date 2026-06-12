@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user
@@ -207,6 +207,85 @@ async def search_groups(
             "join_status": "pending" if pending_result.scalar_one_or_none() else None,
         })
     return {"groups": items}
+
+
+@router.get("/calls/history")
+async def call_history(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Call log entries across the user's direct conversations, newest first."""
+    mem_result = await db.execute(
+        select(ConversationMember)
+        .join(Conversation, Conversation.id == ConversationMember.conversation_id)
+        .where(
+            and_(
+                ConversationMember.user_id == current_user.id,
+                ConversationMember.deleted_at.is_(None),
+                Conversation.type == "direct",
+            )
+        )
+    )
+    memberships = mem_result.scalars().all()
+    if not memberships:
+        return {"items": []}
+
+    # Respect per-conversation "cleared history" cutoffs
+    visibility_conds = []
+    for mem in memberships:
+        cond = Message.conversation_id == mem.conversation_id
+        if mem.messages_hidden_before is not None:
+            cond = and_(cond, Message.created_at > mem.messages_hidden_before)
+        visibility_conds.append(cond)
+
+    msg_result = await db.execute(
+        select(Message)
+        .where(and_(Message.message_type == "call", or_(*visibility_conds)))
+        .order_by(desc(Message.created_at))
+        .limit(limit)
+    )
+    call_messages = msg_result.scalars().all()
+    if not call_messages:
+        return {"items": []}
+
+    conv_ids = {m.conversation_id for m in call_messages}
+    others_result = await db.execute(
+        select(ConversationMember.conversation_id, User)
+        .join(User, User.id == ConversationMember.user_id)
+        .where(
+            and_(
+                ConversationMember.conversation_id.in_(conv_ids),
+                ConversationMember.user_id != current_user.id,
+            )
+        )
+    )
+    other_by_conv = {
+        conv_id: {
+            "id": u.id,
+            "username": u.username,
+            "avatar_url": u.avatar_url,
+            "last_seen": None if not u.show_last_seen else u.last_seen,
+        }
+        for conv_id, u in others_result.all()
+    }
+
+    items = []
+    for m in call_messages:
+        other = other_by_conv.get(m.conversation_id)
+        if not other or not m.call_log:
+            continue
+        items.append({
+            "id": m.id,
+            "conversation_id": m.conversation_id,
+            "direction": "outgoing" if m.sender_id == current_user.id else "incoming",
+            "call_type": m.call_log.get("call_type", "audio"),
+            "status": m.call_log.get("status", "completed"),
+            "duration_seconds": int(m.call_log.get("duration_seconds") or 0),
+            "created_at": ensure_utc(m.created_at),
+            "other_user": other,
+        })
+    return {"items": items}
 
 
 @router.get("")

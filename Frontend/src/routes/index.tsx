@@ -53,7 +53,7 @@ function NexTalkApp() {
 
 function ChatShell() {
   const { activeId, setActiveId, activeConversation, registerOnChatOpen } = useChat();
-  const [panel, setPanel] = useState<PanelKind>("details");
+  const [panel, setPanel] = useState<PanelKind>(null);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [isLg, setIsLg] = useState(true);
@@ -117,10 +117,7 @@ function ChatShell() {
       <div className={cn(mobileChatOpen ? "hidden md:flex" : "flex flex-1 md:flex-none")}>
         <Sidebar
           activeId={activeId}
-          onSelect={(id) => { setActiveId(id); handlePanelOpen("details"); setMobileChatOpen(true); }}
-          onOpenRequests={() => handlePanelOpen("requests")}
-          onOpenNotifications={() => handlePanelOpen("notifications")}
-          onOpenDiscover={() => handlePanelOpen("discover")}
+          onSelect={(id) => { setActiveId(id); if (isLg) handlePanelOpen("details"); setMobileChatOpen(true); }}
           onOpenSettings={() => handlePanelOpen("settings")}
           onCompose={() => setComposeOpen(true)}
         />
@@ -150,9 +147,6 @@ function ChatShell() {
 function panelTitle(p: Exclude<PanelKind, null>) {
   return ({
     details: "Details",
-    requests: "Message Requests",
-    notifications: "Notifications",
-    discover: "Discover people",
     settings: "Settings",
   } as const)[p];
 }

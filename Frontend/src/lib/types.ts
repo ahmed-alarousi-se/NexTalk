@@ -124,6 +124,17 @@ export type GroupSearchResult = {
 
 export type CallType = "audio" | "video";
 
+export type CallHistoryItem = {
+  id: string;
+  conversation_id: string;
+  direction: "incoming" | "outgoing";
+  call_type: CallType;
+  status: "completed" | "missed" | "declined" | "cancelled";
+  duration_seconds: number;
+  created_at: string;
+  other_user: UserLite;
+};
+
 export type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
 
 export type MissedCallPrompt = {

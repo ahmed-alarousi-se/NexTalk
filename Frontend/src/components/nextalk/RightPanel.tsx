@@ -10,7 +10,7 @@ import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export type PanelKind = "details" | "requests" | "notifications" | "discover" | "settings" | null;
+export type PanelKind = "details" | "settings" | null;
 
 type Props = {
   panel: PanelKind;
@@ -40,9 +40,6 @@ export function PanelContent({ panel, conv, onClose: _onClose }: Props) {
   return (
     <>
       {panel === "details" && conv && <Details conv={conv} />}
-      {panel === "requests" && <Requests />}
-      {panel === "notifications" && <Notifications />}
-      {panel === "discover" && <Discover />}
       {panel === "settings" && <SettingsPanel />}
     </>
   );
@@ -51,9 +48,6 @@ export function PanelContent({ panel, conv, onClose: _onClose }: Props) {
 function titleFor(p: Exclude<PanelKind, null>) {
   return ({
     details: "Details",
-    requests: "Message Requests",
-    notifications: "Notifications",
-    discover: "Discover people",
     settings: "Settings",
   } as const)[p];
 }
@@ -358,6 +352,11 @@ function PrivacyPanel({
   onBlock: () => Promise<void>;
 }) {
   const { user } = useAuth();
+  const { contactUserIds, removeContactFromList } = useChat();
+  const [removeBusy, setRemoveBusy] = useState(false);
+
+  const isContact = otherUserId ? contactUserIds.has(otherUserId) : false;
+  const username = conv.other_user?.username ?? "user";
 
   return (
     <div className="p-4 space-y-4">
@@ -384,13 +383,33 @@ function PrivacyPanel({
       {conv.type === "direct" && otherUserId && (
         <div className="pt-2 space-y-2">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">This conversation</p>
+
+          {isContact && (
+            <button
+              disabled={removeBusy}
+              onClick={async () => {
+                if (!window.confirm(`Remove ${username} from your contacts?`)) return;
+                setRemoveBusy(true);
+                try {
+                  await removeContactFromList(otherUserId);
+                } finally {
+                  setRemoveBusy(false);
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 py-2.5 text-sm font-medium hover:bg-amber-500/20 transition-all duration-300 disabled:opacity-50"
+            >
+              <UserPlus className="h-4 w-4" />
+              {removeBusy ? "Removing…" : `Remove ${username} from contacts`}
+            </button>
+          )}
+
           <button
             disabled={blockBusy || isOtherBlocked}
             onClick={() => void onBlock()}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive py-2.5 text-sm font-medium hover:bg-destructive/20 disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive py-2.5 text-sm font-medium hover:bg-destructive/20 transition-all duration-300 disabled:opacity-50"
           >
             <ShieldBan className="h-4 w-4" />
-            {isOtherBlocked ? "User blocked" : `Block ${conv.other_user?.username ?? "user"}`}
+            {isOtherBlocked ? "User blocked" : `Block ${username}`}
           </button>
           <p className="text-[11px] text-muted-foreground px-1">
             Blocked users cannot message you or send contact requests.
@@ -427,56 +446,21 @@ function ToggleRow({
   );
 }
 
-function Requests() {
-  const { messageRequests, acceptRequest, declineRequest } = useChat();
+export function Alerts() {
+  const {
+    messageRequests, acceptRequest, declineRequest,
+    notifications, markNotifRead, markAllNotifsRead,
+    acceptGroupInvitation, rejectGroupInvitation, setActiveId,
+  } = useChat();
   const [busy, setBusy] = useState<string | null>(null);
 
-  if (messageRequests.length === 0) {
-    return <p className="p-6 text-sm text-center text-muted-foreground">No pending requests.</p>;
-  }
-
-  return (
-    <div className="p-3 space-y-2">
-      <p className="px-2 text-xs text-muted-foreground">People who want to connect with you.</p>
-      {messageRequests.map((r) => (
-        <div key={r.id} className="glass rounded-xl p-3 flex gap-3">
-          <Avatar name={r.from_user?.username ?? "?"} src={r.from_user?.avatar_url} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold truncate">{r.from_user?.username ?? "Unknown"}</p>
-              <span className="text-[10px] text-muted-foreground">{timeAgo(r.created_at)}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">Wants to add you as a contact</p>
-            <div className="flex gap-2 mt-2">
-              <button
-                disabled={busy === r.id}
-                onClick={() => { setBusy(r.id); void acceptRequest(r.id).finally(() => setBusy(null)); }}
-                className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground text-xs py-1.5 font-medium hover:opacity-90 transition-all duration-300 disabled:opacity-50"
-              >
-                <Check className="h-3 w-3" /> Accept
-              </button>
-              <button
-                disabled={busy === r.id}
-                onClick={() => { setBusy(r.id); void declineRequest(r.id).finally(() => setBusy(null)); }}
-                className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-white/5 text-foreground text-xs py-1.5 font-medium hover:bg-white/10 transition-all duration-300 disabled:opacity-50"
-              >
-                <X className="h-3 w-3" /> Decline
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Notifications() {
-  const { notifications, markNotifRead, markAllNotifsRead, acceptGroupInvitation, rejectGroupInvitation, setActiveId } = useChat();
-  const [busy, setBusy] = useState<string | null>(null);
+  const hasRequests = messageRequests.length > 0;
+  const hasNotifs = notifications.length > 0;
+  const isEmpty = !hasRequests && !hasNotifs;
 
   return (
     <div className="p-3 space-y-1">
-      {notifications.length > 0 && (
+      {hasNotifs && (
         <button
           onClick={() => void markAllNotifsRead()}
           className="mb-2 w-full text-xs text-primary hover:underline"
@@ -484,69 +468,111 @@ function Notifications() {
           Mark all read
         </button>
       )}
-      {notifications.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No notifications.</p>
-      ) : (
-        notifications.map((n) => {
-          const groupId = n.type === "group_invitation"
-            ? ((n.data?.group_id ?? n.data?.conversation_id) as string | undefined)
-            : undefined;
-          return (
-            <div
-              key={n.id}
-              className={cn("rounded-xl p-3 transition-all duration-300", n.read_at ? "opacity-70" : "bg-primary/5")}
-            >
-              <button
-                onClick={() => !n.read_at && void markNotifRead(n.id)}
-                className="w-full flex gap-3 text-left"
-              >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
-                  <Bell className="h-4 w-4" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{n.title}</p>
-                  <p className="text-xs text-muted-foreground">{n.body}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.created_at)} ago</p>
+
+      {isEmpty && (
+        <p className="py-8 text-center text-sm text-muted-foreground">No alerts.</p>
+      )}
+
+      {/* Contact / chat requests */}
+      {hasRequests && (
+        <div className="space-y-2 mb-3">
+          <p className="px-1 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Contact requests</p>
+          {messageRequests.map((r) => (
+            <div key={r.id} className="glass rounded-xl p-3 flex gap-3">
+              <Avatar name={r.from_user?.username ?? "?"} src={r.from_user?.avatar_url} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold truncate">{r.from_user?.username ?? "Unknown"}</p>
+                  <span className="text-[10px] text-muted-foreground">{timeAgo(r.created_at)}</span>
                 </div>
-                {!n.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-primary" />}
-              </button>
-              {groupId && !n.read_at && (
-                <div className="flex gap-2 mt-2 ml-12">
+                <p className="text-xs text-muted-foreground mt-0.5">Wants to add you as a contact</p>
+                <div className="flex gap-2 mt-2">
                   <button
-                    disabled={busy === n.id}
-                    onClick={() => {
-                      setBusy(n.id);
-                      void acceptGroupInvitation(groupId)
-                        .then(() => { setActiveId(groupId); void markNotifRead(n.id); })
-                        .finally(() => setBusy(null));
-                    }}
-                    className="flex-1 rounded-lg bg-primary text-primary-foreground text-xs py-1.5 font-medium disabled:opacity-50"
+                    disabled={busy === r.id}
+                    onClick={() => { setBusy(r.id); void acceptRequest(r.id).finally(() => setBusy(null)); }}
+                    className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-primary text-primary-foreground text-xs py-1.5 font-medium hover:opacity-90 transition-all duration-300 disabled:opacity-50"
                   >
-                    Accept
+                    <Check className="h-3 w-3" /> Accept
                   </button>
                   <button
-                    disabled={busy === n.id}
-                    onClick={() => {
-                      setBusy(n.id);
-                      void rejectGroupInvitation(groupId)
-                        .then(() => void markNotifRead(n.id))
-                        .finally(() => setBusy(null));
-                    }}
-                    className="flex-1 rounded-lg bg-white/5 text-xs py-1.5 font-medium disabled:opacity-50"
+                    disabled={busy === r.id}
+                    onClick={() => { setBusy(r.id); void declineRequest(r.id).finally(() => setBusy(null)); }}
+                    className="flex-1 flex items-center justify-center gap-1 rounded-lg bg-white/5 text-foreground text-xs py-1.5 font-medium hover:bg-white/10 transition-all duration-300 disabled:opacity-50"
                   >
-                    Decline
+                    <X className="h-3 w-3" /> Decline
                   </button>
                 </div>
-              )}
+              </div>
             </div>
-          );
-        })
+          ))}
+        </div>
+      )}
+
+      {/* Notifications */}
+      {hasNotifs && (
+        <div className="space-y-1">
+          {hasRequests && <p className="px-1 text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1">Notifications</p>}
+          {notifications.map((n) => {
+            const groupId = n.type === "group_invitation"
+              ? ((n.data?.group_id ?? n.data?.conversation_id) as string | undefined)
+              : undefined;
+            return (
+              <div
+                key={n.id}
+                className={cn("rounded-xl p-3 transition-all duration-300", n.read_at ? "opacity-70" : "bg-primary/5")}
+              >
+                <button
+                  onClick={() => !n.read_at && void markNotifRead(n.id)}
+                  className="w-full flex gap-3 text-left"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+                    <Bell className="h-4 w-4" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{n.title}</p>
+                    <p className="text-xs text-muted-foreground">{n.body}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.created_at)} ago</p>
+                  </div>
+                  {!n.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />}
+                </button>
+                {groupId && !n.read_at && (
+                  <div className="flex gap-2 mt-2 ml-12">
+                    <button
+                      disabled={busy === n.id}
+                      onClick={() => {
+                        setBusy(n.id);
+                        void acceptGroupInvitation(groupId)
+                          .then(() => { setActiveId(groupId); void markNotifRead(n.id); })
+                          .finally(() => setBusy(null));
+                      }}
+                      className="flex-1 rounded-lg bg-primary text-primary-foreground text-xs py-1.5 font-medium disabled:opacity-50"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      disabled={busy === n.id}
+                      onClick={() => {
+                        setBusy(n.id);
+                        void rejectGroupInvitation(groupId)
+                          .then(() => void markNotifRead(n.id))
+                          .finally(() => setBusy(null));
+                      }}
+                      className="flex-1 rounded-lg bg-white/5 text-xs py-1.5 font-medium disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-function Discover() {
+export function Discover() {
   const {
     discoverUsers,
     discoverLoading,

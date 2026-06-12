@@ -1,27 +1,30 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, BellOff, Inbox, LogOut, MessageCircle, Moon, Search, Settings, Sun, Users, PenSquare } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Bell, BellOff, LogOut, MessageCircle, Moon, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search, Settings, Sun, Users, PenSquare, Video } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar } from "./Avatar";
-import { clockTime } from "@/lib/format";
+import { Alerts, Discover } from "./RightPanel";
+import { clockTime, timeAgo } from "@/lib/format";
+import { getCallHistory } from "@/lib/api";
 import { useChat } from "@/lib/use-chat";
-import type { Conversation } from "@/lib/types";
+import { useCalls } from "@/lib/use-calls";
+import type { CallHistoryItem, CallType, Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
+import { formatCallDuration } from "@/lib/call-log";
 
-type Tab = "chats" | "requests" | "notifications" | "discover";
+type Tab = "chats" | "calls" | "notifications" | "discover";
 
 type Props = {
   activeId: string | null;
   onSelect: (id: string) => void;
-  onOpenRequests: () => void;
-  onOpenNotifications: () => void;
-  onOpenDiscover: () => void;
   onOpenSettings: () => void;
   onCompose: () => void;
 };
 
-export function Sidebar({ activeId, onSelect, onOpenRequests, onOpenNotifications, onOpenDiscover, onOpenSettings, onCompose }: Props) {
+export function Sidebar({ activeId, onSelect, onOpenSettings, onCompose }: Props) {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<Tab>("chats");
   const { theme, toggle } = useTheme();
@@ -83,30 +86,35 @@ export function Sidebar({ activeId, onSelect, onOpenRequests, onOpenNotification
           label="Chats"
         />
         <TabBtn
-          active={tab === "requests"}
-          onClick={() => { setTab("requests"); onOpenRequests(); }}
-          icon={<Inbox className="h-4 w-4" />}
-          label="Requests"
-          badge={messageRequests.length}
+          active={tab === "calls"}
+          onClick={() => setTab("calls")}
+          icon={<Phone className="h-4 w-4" />}
+          label="Calls"
         />
         <TabBtn
           active={tab === "notifications"}
-          onClick={() => { setTab("notifications"); onOpenNotifications(); }}
+          onClick={() => setTab("notifications")}
           icon={<Bell className="h-4 w-4" />}
           label="Alerts"
-          badge={notificationUnread}
+          badge={(messageRequests.length || 0) + (notificationUnread || 0)}
         />
         <TabBtn
           active={tab === "discover"}
-          onClick={() => { setTab("discover"); onOpenDiscover(); }}
+          onClick={() => setTab("discover")}
           icon={<Users className="h-4 w-4" />}
           label="People"
         />
       </div>
 
-      {/* Conversation list */}
+      {/* List area: conversations / calls / alerts / discover */}
       <div className="flex-1 overflow-y-auto scrollbar-thin px-2 pb-3">
-        {conversationsLoading ? (
+        {tab === "calls" ? (
+          <CallsList onOpenChat={onSelect} />
+        ) : tab === "notifications" ? (
+          <Alerts />
+        ) : tab === "discover" ? (
+          <Discover />
+        ) : conversationsLoading ? (
           <div className="space-y-2 px-2 py-4">
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5 animate-pulse">
@@ -189,18 +197,177 @@ function TabBtn({
   return (
     <button
       onClick={onClick}
+      title={label}
+      aria-label={label}
       className={cn(
-        "relative flex flex-col items-center gap-0.5 rounded-lg py-2.5 text-[11px] font-medium transition-all duration-300 min-h-[52px] justify-center",
+        "relative flex items-center justify-center rounded-lg py-3 transition-all duration-300 min-h-[44px]",
         active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5 active:bg-white/10",
       )}
     >
       {icon}
-      <span>{label}</span>
       {!!badge && badge > 0 && (
         <span className="absolute top-1 right-1.5 min-w-[16px] h-4 px-1 grid place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground leading-none">
           {badge > 99 ? "99+" : badge}
         </span>
       )}
+    </button>
+  );
+}
+
+function CallsList({ onOpenChat }: { onOpenChat: (conversationId: string) => void }) {
+  const { idToken, user } = useAuth();
+  const { conversations, startChat, onlineUserIds, blockedUserIds } = useChat();
+  const { startCall, call: activeCall } = useCalls();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+
+  const callsQuery = useQuery({
+    queryKey: ["call-history", user?.id],
+    queryFn: () => getCallHistory(idToken!),
+    enabled: !!idToken,
+    refetchInterval: 30_000,
+  });
+
+  function handleRecall(item: CallHistoryItem, callType: CallType) {
+    if (blockedUserIds.has(item.other_user.id)) {
+      toast.error("Cannot call this user");
+      return;
+    }
+    if (!onlineUserIds.has(item.other_user.id)) {
+      toast.error(`${item.other_user.username} is offline`);
+      return;
+    }
+    if (activeCall) {
+      toast.error("Already in a call");
+      return;
+    }
+    const conv =
+      conversations.find((c) => c.id === item.conversation_id) ??
+      ({ id: item.conversation_id, type: "direct", other_user: item.other_user, unread_count: 0 } as Conversation);
+    startCall(conv, callType);
+  }
+
+  async function handleOpenChat(item: CallHistoryItem) {
+    const existing = conversations.find((c) => c.id === item.conversation_id);
+    if (existing) {
+      onOpenChat(existing.id);
+      return;
+    }
+    setChatBusy(true);
+    try {
+      await startChat(item.other_user.id);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  if (callsQuery.isLoading) {
+    return (
+      <div className="space-y-2 px-2 py-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5 animate-pulse">
+            <div className="h-10 w-10 rounded-full bg-white/5 shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 bg-white/5 rounded w-3/4" />
+              <div className="h-2.5 bg-white/5 rounded w-1/2" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const items = callsQuery.data ?? [];
+  if (items.length === 0) {
+    return (
+      <div className="px-4 py-12 text-center">
+        <p className="text-sm text-muted-foreground">No calls yet.</p>
+        <p className="text-xs text-muted-foreground/70 mt-1">Voice and video calls will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="space-y-0.5">
+      {items.map((item) => {
+        const missed = item.status === "missed" || (item.status === "cancelled" && item.direction === "incoming");
+        const DirIcon = missed ? PhoneMissed : item.direction === "outgoing" ? PhoneOutgoing : PhoneIncoming;
+        const statusLabel = missed
+          ? "Missed"
+          : item.status === "declined"
+            ? "Declined"
+            : item.status === "cancelled"
+              ? "Cancelled"
+              : item.direction === "outgoing"
+                ? "Outgoing"
+                : "Incoming";
+        const expanded = expandedId === item.id;
+        const online = onlineUserIds.has(item.other_user.id);
+
+        return (
+          <li key={item.id}>
+            <button
+              onClick={() => setExpandedId(expanded ? null : item.id)}
+              className={cn(
+                "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-300 border active:scale-[0.98]",
+                expanded ? "bg-primary/10 border-primary/30" : "border-transparent hover:bg-white/5",
+              )}
+            >
+              <Avatar name={item.other_user.username} src={item.other_user.avatar_url} online={online} />
+              <div className="flex-1 min-w-0 text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <p className={cn("text-sm font-medium truncate", missed && "text-destructive")}>
+                    {item.other_user.username}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(item.created_at)} ago</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                  <DirIcon className={cn("h-3 w-3 shrink-0", missed && "text-destructive")} />
+                  <span className={cn("truncate", missed && "text-destructive")}>
+                    {statusLabel} {item.call_type === "video" ? "video" : "voice"} call
+                    {item.status === "completed" && ` · ${formatCallDuration(item.duration_seconds)}`}
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            {expanded && (
+              <div className="flex items-center justify-center gap-3 py-2 px-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <CallActionBtn label="Voice call" onClick={() => handleRecall(item, "audio")}>
+                  <Phone className="h-4 w-4" />
+                </CallActionBtn>
+                <CallActionBtn label="Video call" onClick={() => handleRecall(item, "video")}>
+                  <Video className="h-4 w-4" />
+                </CallActionBtn>
+                <CallActionBtn label="Chat" disabled={chatBusy} onClick={() => void handleOpenChat(item)}>
+                  <MessageCircle className="h-4 w-4" />
+                </CallActionBtn>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function CallActionBtn({
+  children, label, onClick, disabled,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="grid h-10 w-10 place-items-center rounded-full bg-primary/15 text-primary hover:bg-primary/25 active:scale-95 transition-all duration-200 disabled:opacity-50"
+    >
+      {children}
     </button>
   );
 }

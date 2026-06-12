@@ -47,6 +47,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   const topRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
 
   const title = conv.type === "direct" ? conv.other_user?.username ?? "Chat" : conv.name ?? "Group";
@@ -63,7 +64,10 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
   useEffect(() => {
     if (!showEmojiPicker) return;
     function handleClickOutside(e: MouseEvent) {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insidePicker = emojiPickerRef.current?.contains(target);
+      const insideButton = emojiButtonRef.current?.contains(target);
+      if (!insidePicker && !insideButton) {
         setShowEmojiPicker(false);
       }
     }
@@ -332,6 +336,7 @@ export function ChatView({ conv, onBack, onOpenDetails }: Props) {
               style={{ height: "auto", maxHeight: "120px" }}
             />
             <button
+              ref={emojiButtonRef}
               type="button"
               onClick={() => setShowEmojiPicker((v) => !v)}
               className={cn("shrink-0 grid h-7 w-7 place-items-center rounded-md transition-all duration-300", showEmojiPicker ? "text-primary" : "text-muted-foreground hover:text-foreground")}

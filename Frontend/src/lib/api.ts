@@ -1,6 +1,7 @@
 import type {
   AppNotification,
   BlockedUser,
+  CallHistoryItem,
   Contact,
   Conversation,
   GroupDetails,
@@ -176,6 +177,11 @@ export async function declineMessageRequest(token: string, requestId: string): P
 export async function listConversations(token: string): Promise<Conversation[]> {
   const res = await request<{ conversations: Conversation[] }>("/api/v1/conversations", { token });
   return res.conversations;
+}
+
+export async function getCallHistory(token: string): Promise<CallHistoryItem[]> {
+  const res = await request<{ items: CallHistoryItem[] }>("/api/v1/conversations/calls/history", { token });
+  return res.items;
 }
 
 export async function getUnreadCounts(token: string): Promise<Record<string, number>> {
