@@ -105,18 +105,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const endCall = useCallback(() => {
     const current = callRef.current;
     if (current) {
-      if (current.phase === "outgoing" && current.isCaller) {
-        showMissedPrompt({
-          conversationId: current.conversationId,
-          peerName: current.peer.username,
-          callType: current.callType,
-          logStatus: "cancelled",
-        });
-      }
       nexTalkSocket.send({ type: "call_end", call_id: current.callId });
     }
     cleanup();
-  }, [cleanup, showMissedPrompt]);
+  }, [cleanup]);
 
   const setupRtc = useCallback(
     async (callType: CallType, isCaller: boolean) => {
@@ -278,14 +270,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (ev.type === "call_rejected") {
         const current = callRef.current;
         if (!current || current.callId !== ev.call_id) return;
-        toast.info("Call declined");
         if (current.isCaller) {
-          showMissedPrompt({
-            conversationId: current.conversationId,
-            peerName: current.peer.username,
-            callType: current.callType,
-            logStatus: "declined",
-          });
+          toast.info("Call declined");
         }
         cleanup();
         return;
@@ -298,13 +284,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
           toast.info("No answer");
         } else {
           toast.info(`Missed ${current.callType} call from ${current.peer.username}`);
+          showMissedPrompt({
+            conversationId: current.conversationId,
+            peerName: current.peer.username,
+            callType: current.callType,
+            logStatus: "missed",
+          });
         }
-        showMissedPrompt({
-          conversationId: current.conversationId,
-          peerName: current.peer.username,
-          callType: current.callType,
-          logStatus: "missed",
-        });
         cleanup();
         return;
       }
@@ -314,13 +300,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!current || current.callId !== ev.call_id) return;
         if (ev.reason === "disconnected") {
           toast.info("Call ended — peer disconnected");
-        } else if (ev.reason === "cancelled" && !current.isCaller) {
-          toast.info(`Missed ${current.callType} call`);
+        } else if (current.isCaller) {
+          if (ev.reason === "cancelled") {
+            toast.info("Call cancelled");
+          } else if (ev.reason === "no_answer") {
+            toast.info("No answer");
+          }
         } else if (
-          (ev.reason === "no_answer" || ev.reason === "cancelled" || ev.show_quick_messages) &&
-          current.isCaller
+          ev.reason === "cancelled" ||
+          ev.reason === "no_answer" ||
+          ev.show_quick_messages
         ) {
-          toast.info(ev.reason === "cancelled" ? "Call cancelled" : "No answer");
+          toast.info(`Missed ${current.callType} call from ${current.peer.username}`);
           showMissedPrompt({
             conversationId: current.conversationId,
             peerName: current.peer.username,

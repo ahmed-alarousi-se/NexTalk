@@ -178,11 +178,9 @@ function MissedCallPromptPanel({
   onDismiss: () => void;
 }) {
   const title =
-    prompt.logStatus === "declined"
-      ? "Call declined"
-      : prompt.logStatus === "cancelled"
-        ? "Call cancelled"
-        : "No answer";
+    prompt.logStatus === "cancelled"
+      ? "Missed call"
+      : "No answer";
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
